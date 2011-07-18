@@ -72,56 +72,62 @@
         return splitParts;
     }
 
-    function pathJoin(cwd, parts) {
-        // TODO rewrite (seriously)
-        cwd = pathSplit(cwd);
-        parts = pathSplit(parts);
-
+    function pathNormalize(parts) {
         var newParts = [ ];
         var i;
-        var isRelative = false;
 
         for (i = 0; i < parts.length; ++i) {
             if (!parts[i]) {
                 // Root
-                newParts = [ ];
-                isRelative = false;
+                newParts = [ '' ];
             } else if (parts[i] === '..') {
-                isRelative = newParts.length === 0;
-
-                if (isRelative) {
+                // Go back
+                if (newParts.length === 0) {
                     newParts = [ '..' ];
                 } else {
                     newParts.pop();
                 }
             } else if (parts[i] === '.') {
-                isRelative = newParts.length === 0;
-
-                if (isRelative) {
+                // Go here
+                if (newParts.length === 0) {
                     newParts = [ '.' ];
                 }
             } else {
+                // Everything else
                 newParts.push(parts[i]);
             }
         }
 
-        if (isRelative) {
-            newParts = [ pathJoin([ ], cwd) ].concat(newParts);
-        }
+        return newParts;
+    }
 
-        var path = newParts.join('/');
-        path = path.replace(/\/+/g, '/');
-        return path;
+    function pathResolve(cwd, parts) {
+        cwd = pathNormalize(pathSplit(cwd));
+        parts = pathNormalize(pathSplit(parts));
+
+        if (parts[0] === '..' || parts[0] === '.') {
+            // Relative paths are based on cwd
+            return pathNormalize(cwd.concat(parts));
+        } else {
+            // Absolute paths are based on root
+            return parts;
+        }
+    }
+
+    function pathJoin(parts) {
+        return parts
+            .join('/')
+            .replace(/\/+/g, '/');
     }
 
     function dirName(path) {
-        var parts = path.split(/\//g);
+        var parts = pathSplit(path);
         parts = parts.slice(0, parts.length - 1);
-        return pathJoin([ ], parts);
+        return pathJoin(parts);
     }
 
     function getScriptName(moduleName, config, cwd) {
-        var scriptName = pathJoin(cwd, [ moduleName ]);
+        var scriptName = pathJoin(pathResolve(cwd, moduleName));
         scriptName = scriptName + (/\.js$/i.test(scriptName) ? '' : '.js');
         return scriptName;
     }
@@ -129,7 +135,9 @@
     function loadOneAsync(scriptName, callback) {
         subscribeModuleLoaded(scriptName, callback);
 
-        loadScriptAsync(scriptName, identity);
+        if (!hasOwn(loadedModules, scriptName)) {
+            loadScriptAsync(scriptName, identity);
+        }
     }
 
     function loadManyAsync(moduleNames, config, cwd, callback) {
@@ -241,7 +249,7 @@
         loadScriptAsync = function (scriptName, callback) {
             var script = document.createElement('script');
             script.type = 'text/javascript';
-            script.async = 'async';
+            script.async = true;
             script.addEventListener('load', function () {
                 var defineCallback;
 
@@ -257,8 +265,16 @@
             // TODO Support other onloaded event types (IE)
             // TODO Clean up properly
 
-            script.src = scriptName;
-            head.appendChild(script);
+            nextTick(function () {
+                script.src = scriptName;
+
+                var firstScript = document.getElementsByTagName('script')[0];
+                if (firstScript) {
+                    firstScript.parentNode.insertBefore(script, firstScript);
+                } else {
+                    head.appendChild(script);
+                }
+            });
         };
 
         window.require = require;
