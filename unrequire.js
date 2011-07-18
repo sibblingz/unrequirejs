@@ -224,7 +224,11 @@
                     var callback;
 
                     while ((callback = loadingModules[moduleName].pop())) {
-                        callback(err, moduleValue);
+                        (function (callback) {
+                            nextTick(function () {
+                                callback(err, moduleValue);
+                            });
+                        }(callback));
                     }
 
                     loadingModules[moduleName] = null;
@@ -254,7 +258,7 @@
                 var defineCallback;
 
                 while ((defineCallback = defineHandlers.pop())) {
-                    defineCallback(scriptName, 'TODO CONTEXT');
+                    defineCallback(scriptName);
                 }
 
                 callback(null);
@@ -265,16 +269,14 @@
             // TODO Support other onloaded event types (IE)
             // TODO Clean up properly
 
-            nextTick(function () {
-                script.src = scriptName;
+            script.src = scriptName;
 
-                var firstScript = document.getElementsByTagName('script')[0];
-                if (firstScript) {
-                    firstScript.parentNode.insertBefore(script, firstScript);
-                } else {
-                    head.appendChild(script);
-                }
-            });
+            var firstScript = document.getElementsByTagName('script')[0];
+            if (firstScript) {
+                firstScript.parentNode.insertBefore(script, firstScript);
+            } else {
+                head.appendChild(script);
+            }
         };
 
         window.require = require;
