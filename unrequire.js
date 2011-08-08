@@ -26,6 +26,15 @@
                 } else {
                     head.appendChild(script);
                 }
+            },
+            loadScriptSync: function (scriptName) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('GET', scriptName, false);
+                xhr.send(null);
+
+                var scriptSource = xhr.responseText;
+                scriptSource += scriptSource + '\n\n//@ sourceURL=' + scriptName;
+                eval(scriptSource);
             }
         };
     }
@@ -40,12 +49,11 @@
     var loadedModules = { };
     var loadingModules = { };
 
-    var defineHandlers = [ ];
-
-    var nextTick = function (callback) {
-        // TODO feature-detect better methods
-        setTimeout(callback, 0);
-    };
+    // Stack of multicallbacks.  Each time we load a script, we push to the
+    // stack.  When we encounter a define(), we add a callback to the top
+    // element of the stack.  When the script is done loading, we pop from the
+    // stack and execute all callbacks.
+    var defineHandlerStack = [ ];
 
     // { }.hasOwnProperty and { }.toString are syntax errors, and reusing
     // loadedModules saves bytes after minification.  =]
@@ -83,12 +91,11 @@
     }
 
     var loadScriptAsync = require.loadScriptAsync;
+    var loadScriptSync = require.loadScriptSync;
 
     function subscribeModuleLoaded(moduleName, callback) {
         if (hasOwn(loadedModules, moduleName)) {
-            nextTick(function () {
-                callback(null, loadedModules[moduleName]);
-            });
+            callback(null, loadedModules[moduleName]);
         } else if (hasOwn(loadingModules, moduleName)) {
             loadingModules[moduleName].push(callback);
         } else {
@@ -171,31 +178,60 @@
         return scriptName;
     }
 
-    function loadOneAsync(scriptName, callback) {
-        subscribeModuleLoaded(scriptName, callback);
+    function loadOneSync(scriptName, callback) {
+        if (!hasOwn(loadedModules, scriptName)) {
+            loadScriptSync(scriptName);
 
+            // TODO Remove code duplication (loadOneAsync)
+            var defineCallbacks = defineHandlerStack.pop();
+            var defineCallback;
+            while ((defineCallback = defineCallbacks.pop())) {
+                defineCallback(scriptName);
+            }
+        }
+    }
+
+    function loadOneAsync(scriptName, callback) {
         if (!hasOwn(loadedModules, scriptName)) {
             loadScriptAsync(scriptName, function () {
+                var defineCallbacks = defineHandlerStack.pop();
                 var defineCallback;
-                while ((defineCallback = defineHandlers.pop())) {
+                while ((defineCallback = defineCallbacks.pop())) {
                     defineCallback(scriptName);
                 }
             });
         }
     }
 
-    function loadManyAsync(moduleNames, config, cwd, callback) {
+    function loadOne(scriptName, callback) {
+        try {
+            loadOneSync(scriptName);
+        } catch (e) {
+            loadOneAsync(scriptName);
+        }
+
+        subscribeModuleLoaded(scriptName, callback);
+    }
+
+    function loadMany(moduleNames, config, cwd, callback) {
         var moduleValues = [ ];
         var loadCount = 0;
+        var callbackCalled = false;
 
         function check() {
             if (loadCount >= moduleNames.length) {
+                if (callbackCalled) {
+                    return;
+                }
+
+                callbackCalled = true;
+
                 callback(null, moduleValues);
             }
         }
 
         function load(i) {
-            loadOneAsync(getScriptName(moduleNames[i], config, cwd), function (err, moduleValue) {
+            loadOne(getScriptName(moduleNames[i], config, cwd), function (err, moduleValue) {
                 if (err) return callback(err);
 
                 moduleValues[i] = moduleValue;
@@ -229,7 +265,7 @@
         }
 
         // TODO Support cwd for require
-        loadManyAsync(deps, config, '', function (err, moduleValues) {
+        loadMany(deps, config, '', function (err, moduleValues) {
             if (err) throw err;
 
             callback.apply(null, moduleValues.concat([ /* TODO */ ]));
@@ -259,23 +295,19 @@
         }
 
         function load(scriptName) {
-            loadManyAsync(deps, config, dirName(scriptName), function (err, moduleValues) {
+            loadMany(deps, config, dirName(scriptName), function (err, moduleValues) {
                 function callCallbacks(moduleName, err, moduleValue) {
                     if (!loadingModules[moduleName]) {
                         return;
                     }
 
                     var callback;
-
-                    while ((callback = loadingModules[moduleName].pop())) {
-                        (function (callback) {
-                            nextTick(function () {
-                                callback(err, moduleValue);
-                            });
-                        }(callback));
-                    }
-
+                    var callbacks = loadingModules[moduleName];
                     loadingModules[moduleName] = null;
+
+                    while ((callback = callbacks.pop())) {
+                        callback(err, moduleValue);
+                    }
                 }
 
                 if (err) return callCallbacks(scriptName, err);
@@ -288,7 +320,7 @@
             });
         }
 
-        defineHandlers.push(load);
+        defineHandlerStack.push([ load ]);
     } 
 
     require.init(req, def);
