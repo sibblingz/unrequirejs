@@ -5,7 +5,7 @@
         <script type="text/javascript" src="unrequire.js"></script>
     </head>
     <body>
-        <p>You should eventually see an alert "All tests finished".</p>
+        <p>You should eventually see an alert "All tests finished".  If not, check the console for logs.</p>
 
         <script type="text/javascript">
             var currentTest = 'undefined';
@@ -40,7 +40,7 @@
                 assert('A', A);
                 Test2();
             });
-            
+
             function Test2() {
                 testing('Test2')
                 require(['assets/b'], function(B) {
@@ -48,43 +48,43 @@
                     Test3();
                 });
             }
-            
+
             function Test3() {
                 testing('Test3');
                 require(['assets/a', 'assets/b'], function(A, B) {
                     assert('A', A);
                     assert('B', B);
-                    Test4();   
+                    Test4();
                 });
-            }   
-            
-            function Test4() { 
+            }
+
+            function Test4() {
                 testing('Test4');
                 require(['assets/c/c'], function(C) {
                     assert('ABC', C);
                     Test5();
                 });
-            }   
-            
-            function Test5() { 
+            }
+
+            function Test5() {
                 testing('Test5');
                 require(['assets/c/c', 'assets/a'], function(C, A) {
                     assert('ABC', C);
                     assert('A', A);
                     Test6();
                 });
-            }   
-            
-            function Test6() { 
+            }
+
+            function Test6() {
                 testing('Test6');
                 require(['assets/a', 'assets/c/c'], function(A, C) {
                     assert('A', A);
                     assert('ABC', C);
                     Test7();
-                });    
-            }  
+                });
+            }
 
-            function Test7() { 
+            function Test7() {
                 testing('Test7');
                 require(['assets/b'], function(B) {
                     assert('B', B);
@@ -97,35 +97,52 @@
                 require(['assets/a', 'assets/b'], function(A, B) {
                     assert('A', A);
                     assert('B', B);
-                    Test9();   
+                    Test9();
                 });
-            }   
- 
-            function Test9() { 
+            }
+
+            function Test9() {
                 testing('Test9');
                 require(['assets/c/c'], function(C) {
                     assert('ABC', C);
                     Test10();
                 });
-            }   
-            
-            function Test10() { 
+            }
+
+            function Test10() {
                 testing('Test10');
                 require(['assets/c/c', 'assets/a'], function(C, A) {
                     assert('ABC', C);
                     assert('A', A);
                     Test11();
                 });
-            }   
-            
-            function Test11() { 
+            }
+
+            function Test11() {
                 testing('Test11');
                 require(['assets/a', 'assets/c/c'], function(A, C) {
                     assert('A', A);
                     assert('ABC', C);
+                    Test12();
+                });
+            }
 
+            function Test12() {
+                testing('Test12');
+                require({baseUrl: 'assets'}, ['a', 'b', 'c/d'], function(A, B, D) {
+                    assert('A', A);
+                    assert('B', B);
+                    assert('D', D);
+                    Test13();
+                });
+            }
+
+            function Test13() {
+                testing('Test13');
+                require({baseUrl: 'assets'}, ['e'], function(E) {
+                    assert('ABE' /* LINCOLN */, E);
                     done();
-                });    
+                });
             }
         </script>
     </body>

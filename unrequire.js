@@ -49,11 +49,17 @@
     var loadedModules = { };
     var loadingModules = { };
 
-    // Stack of multicallbacks.  Each time we load a script, we push to the
+    // Stack of script objects.  Each time we load a script, we push to the
     // stack.  When we encounter a define(), we add a callback to the top
     // element of the stack.  When the script is done loading, we pop from the
     // stack and execute all callbacks.
-    var defineHandlerStack = [ ];
+    //
+    // Object syntax is:
+    // {
+    //   "callbacks": [ ],
+    //   "config": { }
+    // }
+    var scriptStack = [ ];
 
     // { }.hasOwnProperty and { }.toString are syntax errors, and reusing
     // loadedModules saves bytes after minification.  =]
@@ -147,16 +153,17 @@
         return newParts;
     }
 
-    function pathResolve(cwd, parts) {
+    function pathResolve(cwd, baseUrl, parts) {
         cwd = pathNormalize(pathSplit(cwd));
+        baseUrl = pathNormalize(pathSplit(baseUrl || ''));
         parts = pathNormalize(pathSplit(parts));
 
         if (parts[0] === '..' || parts[0] === '.') {
             // Relative paths are based on cwd
             return pathNormalize(cwd.concat(parts));
         } else {
-            // Absolute paths are based on root
-            return parts;
+            // Absolute paths are based on baseUrl
+            return baseUrl.concat(parts);
         }
     }
 
@@ -173,32 +180,30 @@
     }
 
     function getScriptName(moduleName, config, cwd) {
-        var scriptName = pathJoin(pathResolve(cwd, moduleName));
+        var scriptName = pathJoin(pathResolve(cwd, config.baseUrl, moduleName));
         scriptName = scriptName + (/\.js$/i.test(scriptName) ? '' : '.js');
         return scriptName;
+    }
+
+    function doneLoadingOne(args) {
+        var script = scriptStack.pop();
+        var callback;
+        while ((callback = script.callbacks.pop())) {
+            callback.apply(null, args);
+        }
     }
 
     function loadOneSync(scriptName, callback) {
         if (!hasOwn(loadedModules, scriptName)) {
             loadScriptSync(scriptName);
-
-            // TODO Remove code duplication (loadOneAsync)
-            var defineCallbacks = defineHandlerStack.pop();
-            var defineCallback;
-            while ((defineCallback = defineCallbacks.pop())) {
-                defineCallback(scriptName);
-            }
+            doneLoadingOne([ scriptName ]);
         }
     }
 
     function loadOneAsync(scriptName, callback) {
         if (!hasOwn(loadedModules, scriptName)) {
             loadScriptAsync(scriptName, function () {
-                var defineCallbacks = defineHandlerStack.pop();
-                var defineCallback;
-                while ((defineCallback = defineCallbacks.pop())) {
-                    defineCallback(scriptName);
-                }
+                doneLoadingOne([ scriptName ]);
             });
         }
     }
@@ -264,6 +269,11 @@
             deps = [ ];
         }
 
+        scriptStack.push({
+            config: config,
+            callbacks: [ ]
+        });
+
         // TODO Support cwd for require
         loadMany(deps, config, '', function (err, moduleValues) {
             if (err) throw err;
@@ -294,8 +304,15 @@
             deps = [ ];
         }
 
+        // Get effective config
+        var effectiveConfig = { };
+        for (var i = 0; i < scriptStack.length; ++i) {
+            extend(effectiveConfig, scriptStack[i].config);
+        }
+        extend(effectiveConfig, config);
+
         function load(scriptName) {
-            loadMany(deps, config, dirName(scriptName), function (err, moduleValues) {
+            loadMany(deps, effectiveConfig, dirName(scriptName), function (err, moduleValues) {
                 function callCallbacks(moduleName, err, moduleValue) {
                     if (!loadingModules[moduleName]) {
                         return;
@@ -320,7 +337,10 @@
             });
         }
 
-        defineHandlerStack.push([ load ]);
+        scriptStack.push({
+            config: config,
+            callbacks: [ load ]
+        });
     } 
 
     require.init(req, def);
