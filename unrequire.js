@@ -33,8 +33,10 @@
                 xhr.send(null);
 
                 var scriptSource = xhr.responseText;
-                scriptSource += scriptSource + '\n\n//@ sourceURL=' + scriptName;
+                scriptSource += '\n\n//@ sourceURL=' + scriptName;
                 eval(scriptSource);
+
+                return true;
             }
         };
     }
@@ -98,16 +100,6 @@
 
     var loadScriptAsync = require.loadScriptAsync;
     var loadScriptSync = require.loadScriptSync;
-
-    function subscribeModuleLoaded(moduleName, callback) {
-        if (hasOwn(loadedModules, moduleName)) {
-            callback(null, loadedModules[moduleName]);
-        } else if (hasOwn(loadingModules, moduleName)) {
-            loadingModules[moduleName].push(callback);
-        } else {
-            loadingModules[moduleName] = [ callback ];
-        }
-    }
 
     function pathSplit(parts) {
         parts = isArray(parts) ? parts : [ parts ];
@@ -185,37 +177,70 @@
         return scriptName;
     }
 
-    function doneLoadingOne(args) {
+    function activeScript() {
+        return scriptStack[scriptStack.length - 1];
+    }
+
+    function getEffectiveConfig(config) {
+        var effectiveConfig = { };
+        for (var i = 0; i < scriptStack.length; ++i) {
+            extend(effectiveConfig, scriptStack[i].config);
+        }
+        extend(effectiveConfig, config);
+        return effectiveConfig;
+    }
+
+    function beginLoading(config) {
+        scriptStack.push({
+            config: config,
+            callbacks: [ ]
+        });
+    }
+
+    function doneLoading(/* args... */) {
         var script = scriptStack.pop();
         var callback;
         while ((callback = script.callbacks.pop())) {
-            callback.apply(null, args);
+            callback.apply(null, arguments);
         }
     }
 
     function loadOneSync(scriptName, callback) {
-        if (!hasOwn(loadedModules, scriptName)) {
-            loadScriptSync(scriptName);
-            doneLoadingOne([ scriptName ]);
+        var loaded = loadScriptSync(scriptName);
+        if (loaded) {
+            doneLoading(scriptName);
+            return true;
+        } else {
+            return false;
         }
     }
 
-    function loadOneAsync(scriptName, callback) {
-        if (!hasOwn(loadedModules, scriptName)) {
-            loadScriptAsync(scriptName, function () {
-                doneLoadingOne([ scriptName ]);
-            });
-        }
+    function loadOneAsync(scriptName) {
+        loadScriptAsync(scriptName, function () {
+            doneLoading(scriptName);
+        });
+    }
+
+    function shouldReloadModule(moduleName) {
+        return !hasOwn(loadedModules, moduleName) && !hasOwn(loadingModules, moduleName);
     }
 
     function loadOne(scriptName, callback) {
-        try {
-            loadOneSync(scriptName);
-        } catch (e) {
-            loadOneAsync(scriptName);
+        if (hasOwn(loadedModules, scriptName)) {
+            callback(null, loadedModules[scriptName]);
+            return;
+        } else if (hasOwn(loadingModules, scriptName)) {
+            loadingModules[scriptName].push(callback);
+            return;
         }
 
-        subscribeModuleLoaded(scriptName, callback);
+        beginLoading();
+
+        loadingModules[scriptName] = [ callback ];
+
+        if (!loadOneSync(scriptName)) {
+            loadOneAsync(scriptName);
+        }
     }
 
     function loadMany(moduleNames, config, cwd, callback) {
@@ -269,14 +294,15 @@
             deps = [ ];
         }
 
-        scriptStack.push({
-            config: config,
-            callbacks: [ ]
-        });
+        var effectiveConfig = getEffectiveConfig(config);
+
+        beginLoading(config);
 
         // TODO Support cwd for require
-        loadMany(deps, config, '', function (err, moduleValues) {
+        loadMany(deps, effectiveConfig, '', function (err, moduleValues) {
             if (err) throw err;
+
+            doneLoading();
 
             if (callback) {
                 callback.apply(null, moduleValues.concat([ /* TODO */ ]));
@@ -306,12 +332,7 @@
             deps = [ ];
         }
 
-        // Get effective config
-        var effectiveConfig = { };
-        for (var i = 0; i < scriptStack.length; ++i) {
-            extend(effectiveConfig, scriptStack[i].config);
-        }
-        extend(effectiveConfig, config);
+        var effectiveConfig = getEffectiveConfig(config);
 
         function load(scriptName) {
             loadMany(deps, effectiveConfig, dirName(scriptName), function (err, moduleValues) {
@@ -339,10 +360,7 @@
             });
         }
 
-        scriptStack.push({
-            config: config,
-            callbacks: [ load ]
-        });
+        activeScript().callbacks.push(load);
     } 
 
     require.init(req, def);

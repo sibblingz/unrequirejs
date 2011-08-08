@@ -141,9 +141,20 @@
                 testing('Test13');
                 require({baseUrl: 'assets'}, ['e'], function(E) {
                     assert('ABE' /* LINCOLN */, E);
+                    Test14();
+                });
+            }
+
+            function Test14() {
+                testing('Test14');
+                require(['assets/a', 'assets/c/c', 'assets/f'], function(A, C, F) {
+                    assert('A', A);
+                    assert('ABC', C);
+                    assert('F', F);
                     done();
                 });
             }
+
         </script>
     </body>
 </html>
