@@ -278,7 +278,9 @@
         loadMany(deps, config, '', function (err, moduleValues) {
             if (err) throw err;
 
-            callback.apply(null, moduleValues.concat([ /* TODO */ ]));
+            if (callback) {
+                callback.apply(null, moduleValues.concat([ /* TODO */ ]));
+            }
         });
     }
 
