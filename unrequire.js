@@ -1,4 +1,37 @@
-(function (undefined) {
+(function () {
+    if (typeof window !== 'undefined') {
+        window.require = {
+            init: function (require, define) {
+                window.require = require;
+                window.define = define;
+            },
+            loadScriptAsync: function (scriptName, callback) {
+                var script = document.createElement('script');
+                script.type = 'text/javascript';
+                script.async = true;
+                script.addEventListener('load', function () {
+                    callback(null);
+                }, false);
+
+                // TODO Error checking
+                // TODO Handle <base>
+                // TODO Support other onloaded event types (IE)
+                // TODO Clean up properly
+
+                script.src = scriptName;
+
+                var firstScript = document.getElementsByTagName('script')[0];
+                if (firstScript) {
+                    firstScript.parentNode.insertBefore(script, firstScript);
+                } else {
+                    head.appendChild(script);
+                }
+            }
+        };
+    }
+}());
+
+(function () {
     var BROWSER = typeof window !== 'undefined';
     var document = window.document;
     var head = document.head;
@@ -44,6 +77,12 @@
 
         return base;
     }
+
+    if (typeof require !== 'object') {
+        throw new Error('Unsupported environment');
+    }
+
+    var loadScriptAsync = require.loadScriptAsync;
 
     function subscribeModuleLoaded(moduleName, callback) {
         if (hasOwn(loadedModules, moduleName)) {
@@ -136,7 +175,12 @@
         subscribeModuleLoaded(scriptName, callback);
 
         if (!hasOwn(loadedModules, scriptName)) {
-            loadScriptAsync(scriptName, identity);
+            loadScriptAsync(scriptName, function () {
+                var defineCallback;
+                while ((defineCallback = defineHandlers.pop())) {
+                    defineCallback(scriptName);
+                }
+            });
         }
     }
 
@@ -170,7 +214,7 @@
         check();
     }
 
-    function require(config, deps, callback) {
+    function req(config, deps, callback) {
         if (!isPlainOldObject(config)) {
             // Config omitted
             callback = deps;
@@ -192,7 +236,7 @@
         });
     }
 
-    function define(name, config, deps, callback) {
+    function def(name, config, deps, callback) {
         if (typeof name !== 'string') {
             // Name omitted
             callback = deps;
@@ -247,41 +291,5 @@
         defineHandlers.push(load);
     } 
 
-    var loadScriptAsync;
-
-    if (BROWSER) {
-        loadScriptAsync = function (scriptName, callback) {
-            var script = document.createElement('script');
-            script.type = 'text/javascript';
-            script.async = true;
-            script.addEventListener('load', function () {
-                var defineCallback;
-
-                while ((defineCallback = defineHandlers.pop())) {
-                    defineCallback(scriptName);
-                }
-
-                callback(null);
-            }, false);
-
-            // TODO Error checking
-            // TODO Handle <base>
-            // TODO Support other onloaded event types (IE)
-            // TODO Clean up properly
-
-            script.src = scriptName;
-
-            var firstScript = document.getElementsByTagName('script')[0];
-            if (firstScript) {
-                firstScript.parentNode.insertBefore(script, firstScript);
-            } else {
-                head.appendChild(script);
-            }
-        };
-
-        window.require = require;
-        window.define = define;
-    } else {
-        throw new Error('Unsupported environment');
-    }
+    require.init(req, def);
 }());
