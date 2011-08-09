@@ -1,4 +1,6 @@
 (function () {
+    var goodResponseCodes = [ 200, 204, 206, 301, 302, 303, 304, 307 ];
+
     if (typeof window !== 'undefined') {
         window.require = {
             init: function (require, define) {
@@ -28,12 +30,24 @@
                 }
             },
             loadScriptSync: function (scriptName) {
-                var xhr = new XMLHttpRequest();
-                xhr.open('GET', scriptName, false);
-                xhr.send(null);
+                var scriptSource;
 
-                var scriptSource = xhr.responseText;
-                scriptSource += '\n\n//@ sourceURL=' + scriptName;
+                try {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', scriptName, false);
+                    xhr.send(null);
+
+                    if (goodResponseCodes.indexOf(xhr.status) < 0) {
+                        return false;
+                    }
+
+                    scriptSource = xhr.responseText;
+                    scriptSource += '\n\n//@ sourceURL=' + scriptName;
+                } catch (e) {
+                    return false;
+                }
+
+                // Don't wrap user code in try/catch
                 eval(scriptSource);
 
                 return true;
@@ -43,6 +57,8 @@
 }());
 
 (function () {
+    var COMPAT = true; // Require.JS compatibility
+
     var BROWSER = typeof window !== 'undefined';
     var document = window.document;
     var head = document.head;
@@ -198,11 +214,16 @@
     }
 
     function doneLoading(/* args... */) {
-        var script = scriptStack.pop();
+        // Users may dynamically define or require modules in the callback.
+        // The config needs to be on this stack, so we must pop *after*
+        // processing all callbacks  The config needs to be on this stack, so
+        // we must pop *after* processing all callbacks
+        var script = activeScript();
         var callback;
         while ((callback = script.callbacks.pop())) {
             callback.apply(null, arguments);
         }
+        scriptStack.pop();
     }
 
     function loadOneSync(scriptName, callback) {
@@ -244,6 +265,12 @@
     }
 
     function loadMany(moduleNames, config, cwd, callback) {
+        if (COMPAT) {
+            moduleNames.push('require');
+            moduleNames.push('exports');
+            moduleNames.push('module');
+        }
+
         var moduleValues = [ ];
         var loadCount = 0;
         var callbackCalled = false;
@@ -260,15 +287,51 @@
             }
         }
 
+        function loaded(i, moduleValue) {
+            moduleValues[i] = moduleValue;
+            ++loadCount;
+
+            check();
+        }
+
         function load(i) {
-            loadOne(getScriptName(moduleNames[i], config, cwd), function (err, moduleValue) {
-                if (err) return callback(err);
+            var moduleName = moduleNames[i];
 
-                moduleValues[i] = moduleValue;
-                ++loadCount;
+            if (moduleName === 'require') {
+                loaded(i, function require(/* ... */) {
+                    var args = reqArgs.apply(null, arguments);
+                    var newConfig = args.config;
+                    var deps = args.deps;
+                    var callback = args.callback;
 
-                check();
-            });
+                    newConfig = extend(extend({ }, config), newConfig);
+
+                    return req(newConfig, deps, callback);
+                });
+            } else if (moduleName === 'define') {
+                loaded(i, function define(/* ... */) {
+                    var args = defArgs.apply(null, arguments);
+                    var name = args.name;
+                    var newConfig = args.config;
+                    var deps = args.deps;
+                    var callback = args.callback;
+
+                    newConfig = extend(extend({ }, config), newConfig);
+
+                    return def(name, config, deps, callback);
+                });
+            } else if (COMPAT && moduleName === 'module') {
+                loaded(i, { });
+            } else if (COMPAT && moduleName === 'exports') {
+                // TODO
+                loaded(i, { });
+            } else {
+                loadOne(getScriptName(moduleName, config, cwd), function (err, moduleValue) {
+                    if (err) return callback(err);
+
+                    loaded(i, moduleValue);
+                });
+            }
         }
 
         var i;
@@ -280,7 +343,9 @@
         check();
     }
 
-    function req(config, deps, callback) {
+    function reqArgs(config, deps, callback) {
+        // TODO require(string)
+
         if (!isPlainOldObject(config)) {
             // Config omitted
             callback = deps;
@@ -293,6 +358,21 @@
             callback = deps;
             deps = [ ];
         }
+
+        return {
+            config: config,
+            deps: deps,
+            callback: callback
+        };
+    }
+
+    function req(/* ... */) {
+        // TODO require(string)
+
+        var args = reqArgs.apply(null, arguments);
+        var config = args.config;
+        var deps = args.deps;
+        var callback = args.callback;
 
         var effectiveConfig = getEffectiveConfig(config);
 
@@ -310,7 +390,7 @@
         });
     }
 
-    function def(name, config, deps, callback) {
+    function defArgs(name, config, deps, callback) {
         if (typeof name !== 'string') {
             // Name omitted
             callback = deps;
@@ -331,6 +411,21 @@
             callback = deps;
             deps = [ ];
         }
+
+        return {
+            name: name,
+            config: config,
+            deps: deps,
+            callback: callback
+        };
+    }
+
+    function def(/* ... */) {
+        var args = defArgs.apply(null, arguments);
+        var name = args.name;
+        var config = args.config;
+        var deps = args.deps;
+        var callback = args.callback;
 
         var effectiveConfig = getEffectiveConfig(config);
 
@@ -354,14 +449,33 @@
 
                 var moduleValue = callback.apply(null, moduleValues.concat([ /* TODO */ ]));
 
+                if (COMPAT) {
+                    if (typeof moduleValue === 'undefined') {
+                        // Find the exports module and use that instead
+                        var exportsIndex = deps.indexOf('exports');
+
+                        if (exportsIndex >= 0) {
+                            moduleValue = moduleValues[exportsIndex];
+                        }
+                    }
+                }
+
                 loadedModules[scriptName] = moduleValue;
 
                 callCallbacks(scriptName, null, moduleValue);
             });
         }
 
-        activeScript().callbacks.push(load);
-    } 
+        var s = activeScript();
+
+        if (s) {
+            s.callbacks.push(load);
+        } else if (name) {
+            load(getScriptName(name, config, effectiveConfig.cwd || ''));
+        } else {
+            throw new Error('Invalid define call');
+        }
+    }
 
     require.init(req, def);
 }());
