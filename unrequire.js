@@ -1,75 +1,4 @@
 (function () {
-    var goodResponseCodes = [ 200, 204, 206, 301, 302, 303, 304, 307 ];
-
-    if (typeof window !== 'undefined') {
-        window.require = {
-            init: function (require, define) {
-                window.require = require;
-                window.define = define;
-            },
-            loadScriptAsync: function (scriptName, callback) {
-                var script = document.createElement('script');
-                script.type = 'text/javascript';
-                script.async = true;
-
-                // Modelled after jQuery (src/ajax/script.js)
-                script.onload = script.onreadystagechange = function () {
-                    if (!script.readyState || /loaded|complete/.test(script.readyState)) {
-                        // Remove from DOM
-                        if (script.parentNode) {
-                            script.parentNode.removeChild(script);
-                        }
-
-                        // IE likes memleaks
-                        script.onload = script.onreadystatechange = null;
-                        script = null;
-
-                        callback(null);
-                    }
-                };
-
-                script.onerror = function () {
-                    callback(new Error());
-                };
-
-                script.src = scriptName;
-
-                // TODO Refactor this
-                var firstScript = document.getElementsByTagName('script')[0];
-                if (firstScript) {
-                    firstScript.parentNode.insertBefore(script, firstScript);
-                } else {
-                    head.appendChild(script);
-                }
-            },
-            loadScriptSync: function (scriptName) {
-                var scriptSource;
-
-                try {
-                    var xhr = new XMLHttpRequest();
-                    xhr.open('GET', scriptName, false);
-                    xhr.send(null);
-
-                    if (goodResponseCodes.indexOf(xhr.status) < 0) {
-                        return false;
-                    }
-
-                    scriptSource = xhr.responseText;
-                    scriptSource += '\n\n//@ sourceURL=' + scriptName;
-                } catch (e) {
-                    return false;
-                }
-
-                // Don't wrap user code in try/catch
-                eval(scriptSource);
-
-                return true;
-            }
-        };
-    }
-}());
-
-(function () {
     var COMPAT = true; // Require.JS compatibility
 
     var BROWSER = typeof window !== 'undefined';
@@ -123,12 +52,7 @@
         return base;
     }
 
-    if (typeof require !== 'object') {
-        throw new Error('Unsupported environment');
-    }
-
-    var loadScriptAsync = require.loadScriptAsync;
-    var loadScriptSync = require.loadScriptSync;
+    var loadScriptAsync, loadScriptSync;
 
     function pathSplit(parts) {
         parts = isArray(parts) ? parts : [ parts ];
@@ -501,5 +425,109 @@
         }
     }
 
-    require.init(req, def);
+    var environment = { };
+
+    function updateEnvironment(env) {
+        extend(environment, env);
+
+        loadScriptSync = env.loadScriptSync;
+        loadScriptAsync = env.loadScriptAsync;
+
+        environment.init(req, def);
+    }
+
+    req.env = updateEnvironment;
+
+    (function () {
+        // Environment-specific code
+
+        var goodResponseCodes = [ 200, 204, 206, 301, 302, 303, 304, 307 ];
+
+        var browser = {
+            init: function (require, define) {
+                window.require = require;
+                window.define = define;
+            },
+            loadScriptAsync: function (scriptName, callback) {
+                var script = document.createElement('script');
+                script.type = 'text/javascript';
+                script.async = true;
+
+                // Modelled after jQuery (src/ajax/script.js)
+                script.onload = script.onreadystagechange = function () {
+                    if (!script.readyState || /loaded|complete/.test(script.readyState)) {
+                        // Remove from DOM
+                        if (script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+
+                        // IE likes memleaks
+                        script.onload = script.onreadystatechange = null;
+                        script = null;
+
+                        callback(null);
+                    }
+                };
+
+                script.onerror = function () {
+                    callback(new Error());
+                };
+
+                script.src = scriptName;
+
+                // TODO Refactor this
+                var firstScript = document.getElementsByTagName('script')[0];
+                if (firstScript) {
+                    firstScript.parentNode.insertBefore(script, firstScript);
+                } else {
+                    head.appendChild(script);
+                }
+            },
+            loadScriptSync: function (scriptName) {
+                var scriptSource;
+
+                try {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open('GET', scriptName, false);
+                    xhr.send(null);
+
+                    if (goodResponseCodes.indexOf(xhr.status) < 0) {
+                        return false;
+                    }
+
+                    scriptSource = xhr.responseText;
+                    scriptSource += '\n\n//@ sourceURL=' + scriptName;
+                } catch (e) {
+                    return false;
+                }
+
+                // Don't wrap user code in try/catch
+                eval(scriptSource);
+
+                return true;
+            }
+        };
+
+        var node = {
+            init: function (require, define) {
+                exports.require = require;
+                exports.define = define;
+            },
+            loadScriptAsync: function (scriptName, callback) {
+                callback(new Error('Error loading module ' + scriptName));
+            },
+            loadScriptSync: function (scriptName) {
+                require(scriptName); // Node.JS-provided require
+            }
+        };
+
+        if (typeof window !== 'undefined') {
+            var r = typeof window.require === 'object' ? window.require : { };
+            updateEnvironment(extend(browser, r));
+        } else if (typeof module !== 'undefined') {
+            updateEnvironment(node);
+        } else {
+            throw new Error('Unsupported environment');
+        }
+    }());
 }());
