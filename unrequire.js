@@ -1,10 +1,6 @@
 (function () {
     var COMPAT = true; // Require.JS compatibility
 
-    var BROWSER = typeof window !== 'undefined';
-    var document = window.document;
-    var head = document.head;
-
     var queuedModules = { };
     var loadedModules = { };
     var loadingModules = { };
@@ -433,7 +429,7 @@
         loadScriptSync = env.loadScriptSync;
         loadScriptAsync = env.loadScriptAsync;
 
-        environment.init(req, def);
+        environment.init(req, def, env);
     }
 
     req.env = updateEnvironment;
@@ -480,7 +476,7 @@
                 if (firstScript) {
                     firstScript.parentNode.insertBefore(script, firstScript);
                 } else {
-                    head.appendChild(script);
+                    document.head.appendChild(script);
                 }
             },
             loadScriptSync: function (scriptName) {
@@ -508,10 +504,16 @@
             }
         };
 
+        var context = null;
+
         var node = {
-            init: function (require, define) {
+            init: function (require, define, env) {
                 exports.require = require;
                 exports.define = define;
+
+                if (env.context) {
+                    context = env.context;
+                }
             },
             loadScriptAsync: function (scriptName, callback) {
                 callback(new Error('Error loading module ' + scriptName));
