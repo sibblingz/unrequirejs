@@ -11,17 +11,30 @@
                 var script = document.createElement('script');
                 script.type = 'text/javascript';
                 script.async = true;
-                script.addEventListener('load', function () {
-                    callback(null);
-                }, false);
 
-                // TODO Error checking
-                // TODO Handle <base>
-                // TODO Support other onloaded event types (IE)
-                // TODO Clean up properly
+                // Modelled after jQuery (src/ajax/script.js)
+                script.onload = script.onreadystagechange = function () {
+                    if (!script.readyState || /loaded|complete/.test(script.readyState)) {
+                        // Remove from DOM
+                        if (script.parentNode) {
+                            script.parentNode.removeChild(script);
+                        }
+
+                        // IE likes memleaks
+                        script.onload = script.onreadystatechange = null;
+                        script = null;
+
+                        callback(null);
+                    }
+                };
+
+                script.onerror = function () {
+                    callback(new Error());
+                };
 
                 script.src = scriptName;
 
+                // TODO Refactor this
                 var firstScript = document.getElementsByTagName('script')[0];
                 if (firstScript) {
                     firstScript.parentNode.insertBefore(script, firstScript);
