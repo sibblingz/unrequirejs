@@ -284,6 +284,7 @@
             moduleNames.push('module');
         }
 
+        var moduleScripts = [ ];
         var moduleValues = [ ];
         var loadCount = 0;
         var callbackCalled = false;
@@ -296,7 +297,7 @@
 
                 callbackCalled = true;
 
-                callback(null, moduleValues);
+                callback(null, moduleValues, moduleScripts);
             }
         }
 
@@ -309,6 +310,7 @@
 
         function load(i) {
             var moduleName = moduleNames[i];
+            moduleScripts[i] = moduleName;
 
             if (moduleName === 'require') {
                 loaded(i, function require(/* ... */) {
@@ -339,7 +341,10 @@
                 // TODO
                 loaded(i, { });
             } else {
-                loadOne(getScriptName(moduleName, config, cwd), function (err, moduleValue) {
+                var moduleScript = getScriptName(moduleName, config, cwd);
+                moduleScripts[i] = moduleScript;
+
+                loadOne(moduleScript, function (err, moduleValue) {
                     if (err) return callback(err);
 
                     loaded(i, moduleValue);
@@ -354,6 +359,27 @@
         }
 
         check();
+    }
+
+    function userCallback(scriptName, callback, moduleValues, moduleScripts) {
+        var moduleValue; // Default to undefined
+
+        if (callback) {
+            moduleValue = callback.apply(null, moduleValues);
+        }
+
+        if (COMPAT) {
+            if (typeof moduleValue === 'undefined') {
+                // Find the exports module and use that instead
+                var exportsIndex = moduleScripts.indexOf('exports');
+
+                if (exportsIndex >= 0) {
+                    moduleValue = moduleValues[exportsIndex];
+                }
+            }
+        }
+
+        return moduleValue;
     }
 
     function reqArgs(config, deps, callback) {
@@ -392,14 +418,12 @@
         beginLoading(config);
 
         // TODO Support cwd for require
-        loadMany(deps, effectiveConfig, '', function (err, moduleValues) {
+        loadMany(deps, effectiveConfig, '', function (err, moduleValues, moduleScripts) {
             if (err) throw err;
 
             doneLoading();
 
-            if (callback) {
-                callback.apply(null, moduleValues.concat([ /* TODO */ ]));
-            }
+            userCallback(null, callback, moduleValues, moduleScripts);
         });
     }
 
@@ -443,7 +467,7 @@
         var effectiveConfig = getEffectiveConfig(config);
 
         function load(scriptName) {
-            loadMany(deps, effectiveConfig, dirName(scriptName), function (err, moduleValues) {
+            loadMany(deps, effectiveConfig, dirName(scriptName), function (err, moduleValues, moduleScripts) {
                 function callCallbacks(moduleName, err, moduleValue) {
                     if (!loadingModules[moduleName]) {
                         return;
@@ -460,21 +484,8 @@
 
                 if (err) return callCallbacks(scriptName, err);
 
-                var moduleValue = callback.apply(null, moduleValues.concat([ /* TODO */ ]));
-
-                if (COMPAT) {
-                    if (typeof moduleValue === 'undefined') {
-                        // Find the exports module and use that instead
-                        var exportsIndex = deps.indexOf('exports');
-
-                        if (exportsIndex >= 0) {
-                            moduleValue = moduleValues[exportsIndex];
-                        }
-                    }
-                }
-
+                var moduleValue = userCallback(scriptName, callback, moduleValues, moduleScripts);
                 loadedModules[scriptName] = moduleValue;
-
                 callCallbacks(scriptName, null, moduleValue);
             });
         }
