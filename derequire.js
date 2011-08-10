@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+
+var path = require('path');
+var args = require('optimist').argv;
+
+if (args.h || args.help || !args.level) {
+    console.log('Usage: ' + path.basename(args.$0) + ' [options] --level X scriptFile.js [otherScriptFile.js [...]]');
+    console.log('  Compiles an Unrequire.JS project into one script file');
+    console.log('');
+    console.log('options:');
+    console.log('  --base path     Use path as the default module lookup path');
+    console.log('  --level X       Compress using level X:');
+    console.log('                  SIMPLE: Not supported');
+    console.log('                  ADVANCED: ...');
+    //console.log('  --exclude path  Do not include the specified module');
+    console.log('  -h, --help      Show this help');
+    console.log('');
+    return;
+}
+
+var scriptFiles = args._.map(function (file) {
+    return path.resolve(file);
+});
+var level = args.level;
+//var ignoredModules = args.exclude;
+var baseUrl = path.resolve(args.base || process.cwd());
+
+var output = process.stdout;
+
+switch (level) {
+    case 'SIMPLE':
+        throw new Error('SIMPLE level not supported');
+    case 'ADVANCED':
+        advanced(output);
+        break;
+    default:
+        throw new Error('Unknown level: ' + level);
+}
+
+function advanced(output) {
+    var vm = require('vm');
+
+    var sandbox = {
+        require: null,
+        define: null
+    };
+
+    function getScriptVariableName(scriptName) {
+        // TODO More robust solution
+        return scriptName.replace(/[^a-z_$]/ig, '_');
+    }
+
+    var r = require('./unrequire');
+    r.require.env({
+        context: sandbox,
+        init: function (require, define, env) {
+            sandbox.require = require;
+            sandbox.define = define;
+        },
+        userCallback: function (scriptName, callback, moduleValues, moduleScripts) {
+            if (!callback) return;
+
+            var fn = callback.toString();
+            var argNames = /\((.*?)\)/.exec(fn)[1].split(/[,\s]+/g);
+            var argValues = moduleScripts.map(getScriptVariableName);
+            var body = fn.substr(fn.indexOf('{') + 1).replace(/}[\s\r\n]*$/g, '');
+
+            // XXX HACK HACK HACK XXX Remove require, exports, module
+            argValues.splice(-3, 3);
+
+            output.write('var ' + getScriptVariableName(scriptName) + ' = ');
+            output.write('(function (' + argNames.join(', ') + ') {\n');
+            output.write(body + '\n');
+            output.write('})(' + argValues.join(', ') + ');\n');
+
+            return null;
+        }
+    });
+
+    output.write('(function () {\n');
+    r.require({
+        baseUrl: baseUrl
+    }, scriptFiles);
+    output.write('})();\n');
+}

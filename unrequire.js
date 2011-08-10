@@ -49,6 +49,7 @@
     }
 
     var loadScriptAsync, loadScriptSync;
+    var userCallback;
 
     function pathSplit(parts) {
         parts = isArray(parts) ? parts : [ parts ];
@@ -102,8 +103,10 @@
         if (parts[0] === '..' || parts[0] === '.') {
             // Relative paths are based on cwd
             return pathNormalize(cwd.concat(parts));
+        } else if (parts[0] === '') {
+            return parts;
         } else {
-            // Absolute paths are based on baseUrl
+            // Implicit relative paths are based on baseUrl
             return baseUrl.concat(parts);
         }
     }
@@ -281,7 +284,7 @@
         check();
     }
 
-    function userCallback(scriptName, callback, moduleValues, moduleScripts) {
+    function defaultUserCallback(scriptName, callback, moduleValues, moduleScripts) {
         var moduleValue; // Default to undefined
 
         if (callback) {
@@ -424,10 +427,18 @@
     var environment = { };
 
     function updateEnvironment(env) {
+        var oldInit = environment.init;
+
         extend(environment, env);
 
-        loadScriptSync = env.loadScriptSync;
-        loadScriptAsync = env.loadScriptAsync;
+        if (oldInit) {
+            // FIXME HACK
+            oldInit(req, def, environment);
+        }
+
+        loadScriptSync = environment.loadScriptSync;
+        loadScriptAsync = environment.loadScriptAsync;
+        userCallback = environment.userCallback;
 
         environment.init(req, def, env);
     }
@@ -501,7 +512,8 @@
                 eval(scriptSource);
 
                 return true;
-            }
+            },
+            userCallback: defaultUserCallback
         };
 
         var context = null;
@@ -519,8 +531,22 @@
                 callback(new Error('Error loading module ' + scriptName));
             },
             loadScriptSync: function (scriptName) {
-                require(scriptName); // Node.JS-provided require
-            }
+                var fs = require('fs'); // Node.JS-provided require
+                var vm = require('vm'); // "
+
+                var code;
+                try {
+                    code = fs.readFileSync(scriptName);
+                } catch (e) {
+                    // TODO Detect file-not-found errors only
+                    return false;
+                }
+
+                vm.runInNewContext(code, context || { }, scriptName);
+
+                return true;
+            },
+            userCallback: defaultUserCallback
         };
 
         if (typeof window !== 'undefined') {
