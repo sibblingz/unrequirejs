@@ -6,36 +6,76 @@ function simple(output) {
     var vm = require('vm');
     var fs = require('fs');
 
-    var writeCodeKey = 'write_code_derequire_internal_stuff';
-
     var sandbox = {
         require: null,
         define: null
     };
 
-    sandbox[writeCodeKey] = function writeCode(code) {
-        output.write(code + END_SCRIPT);
-    };
+    var codes = { };
+
+    function writeCode(name) {
+        if (Object.prototype.hasOwnProperty.call(codes, name)) {
+            output.write(codes[name] + END_SCRIPT);
+            delete codes[name];
+        }
+    }
 
     // I know, I know.  This is super flaky.  Sorry.
     var callsRe = '';
     callsRe += '\\b(require|define)[\\s\\r\\n]*\\('; // require or define call
-    callsRe += '(,[^,]+)?';                          // Optional first parameter
-    callsRe += '(,[^,]+)?';                          // Optional second parameter
-    callsRe += '[\\s\\r\\n]*\\[[^]*?\\]';            // Dependency list
+    callsRe += '([\\s\\r\\n]*[\'\"][^,]+,)?';        // Optional first parameter ('name')
+    callsRe += '([\\s\\r\\n]*\{[^,]+,)?';            // Optional second parameter ({config})
+    callsRe += '([\\s\\r\\n]*\\[[^]*?\\])?';         // Optional dependency list
     // Extra step so we can split up our RE
     callsRe = new RegExp(callsRe, 'g');
 
-    function rewriteCalls(code) {
-        return code;
+    function rewriteCalls(code, scriptName, config) {
+        var base = path.normalize(config.baseUrl);
+        var script = path.resolve(base, scriptName);
+
+        // HACKY HACKY HACK~
+        var moduleParts = [ ];
+        var baseParts = base.split('/');
+        var scriptParts = script.split('/');
+        var i;
+        for (i = 0; i < baseParts.length; ++i) {
+            if (i >= scriptParts.length) {
+                // Base path goes further than scriptParts; add ..
+                moduleParts.push('..');
+            } else if (baseParts[i] === scriptParts[i]) {
+                // Matching part; do nothing
+            } else {
+                // Differing part; ../part
+                moduleParts.push('..');
+                moduleParts.push(scriptParts[i]);
+            }
+        }
+        for (/* */; i < scriptParts.length; ++i) {
+            moduleParts.push(scriptParts[i]);
+        }
+
+        var cwd = moduleParts.slice(0, moduleParts.length - 1).join('/');
+        var moduleName = moduleParts[moduleParts.length - 1];
+
+        return code.replace(callsRe, function (call, reqdef, name, config, deps) {
+            if (name || reqdef === 'require') {
+                return call;
+            } else {
+                // TODO Support custom configs properly (merge)
+
+                return reqdef + '(' + [
+                    JSON.stringify('./' + moduleName),
+                    JSON.stringify({ cwd: cwd }),
+                    deps || '[],'
+                ].join(', ');
+            }
+        });
     }
 
-    function getCalls(code) {
+    function getCalls(code, scriptName) {
         var calls = code.match(callsRe) || [ ];
         return calls.map(function (call) {
-            return call + ', function () {'
-                + writeCodeKey + '(' + JSON.stringify(code) + ');'
-                + '})';
+            return call + ', function () { });'
         });
     }
 
@@ -46,15 +86,27 @@ function simple(output) {
             sandbox.require = require;
             sandbox.define = define;
         },
-        loadScriptSync: function (scriptName) {
+        loadScriptSync: function (scriptName, config) {
             var code = fs.readFileSync(scriptName, 'utf8');
-            code = rewriteCalls(code);
+            code = rewriteCalls(code, scriptName, config);
+            codes[scriptName] = code;
 
-            getCalls(code).forEach(function (call, i) {
+            var calls = getCalls(code, scriptName, config);
+
+            calls.forEach(function (call, i) {
                 vm.runInNewContext(call, sandbox, scriptName + ':' + i);
             });
 
             return true;
+        },
+        userCallback: function (scriptName, callback, moduleValues, moduleScripts) {
+            moduleScripts.forEach(writeCode);
+
+            if (scriptName) {
+                writeCode(scriptName);
+            }
+
+            return null;
         }
     });
 
@@ -64,6 +116,8 @@ function simple(output) {
         baseUrl: baseUrl
     }, scriptFiles);
     output.write('})();' + END_SCRIPT);
+
+    scriptFiles.forEach(writeCode);
 }
 
 function advanced(output) {

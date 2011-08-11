@@ -101,13 +101,14 @@
 
     function pathResolve(cwd, baseUrl, parts) {
         cwd = pathNormalize(pathSplit(cwd));
-        baseUrl = pathNormalize(pathSplit(baseUrl || ''));
+        baseUrl = pathNormalize(pathSplit(baseUrl || '.'));
         parts = pathNormalize(pathSplit(parts));
 
         if (parts[0] === '..' || parts[0] === '.') {
             // Relative paths are based on cwd
-            return pathNormalize(cwd.concat(parts));
+            return pathNormalize(baseUrl.concat(cwd).concat(parts));
         } else if (parts[0] === '') {
+            // Absolute path stays absolute
             return parts;
         } else {
             // Implicit relative paths are based on baseUrl
@@ -187,7 +188,19 @@
     }
 
     function loadOne(scriptName, config, callback) {
-        if (hasOwn(loadedModules, scriptName)) {
+        if (hasOwn(queuedModules, scriptName)) {
+            var c = queuedModules[scriptName];
+            delete queuedModules[scriptName];
+
+            if (hasOwn(loadingModules, scriptName)) {
+                loadingModules[scriptName].push(callback);
+            } else {
+                loadingModules[scriptName] = [ callback ];
+            }
+
+            c(scriptName, config);
+            return;
+        } else if (hasOwn(loadedModules, scriptName)) {
             callback(null, loadedModules[scriptName]);
             return;
         } else if (hasOwn(loadingModules, scriptName)) {
@@ -426,7 +439,12 @@
         if (s) {
             s.callbacks.push(load);
         } else if (name) {
-            load(getScriptName(name, effectiveConfig));
+            var scriptName = getScriptName(name, effectiveConfig);
+
+            queuedModules[scriptName] = function (_, neoConfig) {
+                // TODO use neoConfig
+                load(scriptName);
+            };
         } else {
             throw new Error('Invalid define call');
         }
