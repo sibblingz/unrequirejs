@@ -87,7 +87,16 @@ function simple(output) {
             sandbox.define = define;
         },
         loadScriptSync: function (scriptName, config) {
-            var code = fs.readFileSync(scriptName, 'utf8');
+            var code;
+            try {
+                code = fs.readFileSync(scriptName, 'utf8');
+            } catch (e){
+                if (e.code === 'EBADF') {
+                    return false;
+                } else {
+                    throw e;
+                }
+            }
             code = rewriteCalls(code, scriptName, config);
             codes[scriptName] = code;
 

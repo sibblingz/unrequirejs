@@ -154,7 +154,7 @@
         });
     }
 
-    function doneLoading(/* args... */) {
+    function doneLoading(err, scriptName) {
         // Users may dynamically define or require modules in the callback.
         // The config needs to be on this stack, so we must pop *after*
         // processing all callbacks  The config needs to be on this stack, so
@@ -162,15 +162,17 @@
         var script = activeScript();
         var callback;
         while ((callback = script.callbacks.pop())) {
-            callback.apply(null, arguments);
+            callback(err, scriptName);
         }
         scriptStack.pop();
+
+        if (err) throw err;
     }
 
     function loadOneSync(scriptName, config) {
         var loaded = loadScriptSync(scriptName, clone(config));
         if (loaded) {
-            doneLoading(scriptName);
+            doneLoading(null, scriptName);
             return true;
         } else {
             return false;
@@ -178,8 +180,8 @@
     }
 
     function loadOneAsync(scriptName, config) {
-        loadScriptAsync(scriptName, function () {
-            doneLoading(scriptName);
+        loadScriptAsync(scriptName, function (err) {
+            doneLoading(err, scriptName);
         }, clone(config));
     }
 
@@ -365,7 +367,7 @@
         loadMany(deps, effectiveConfig, function (err, moduleValues, moduleScripts) {
             if (err) throw err;
 
-            doneLoading();
+            doneLoading(null, null);
 
             userCallback(null, callback, moduleValues, moduleScripts);
         });
@@ -410,23 +412,25 @@
 
         var effectiveConfig = getEffectiveConfig(config);
 
-        function load(scriptName) {
-            loadMany(deps, effectiveConfig, function (err, moduleValues, moduleScripts) {
-                function callCallbacks(moduleName, err, moduleValue) {
-                    if (!loadingModules[moduleName]) {
-                        return;
-                    }
-
-                    var callback;
-                    var callbacks = loadingModules[moduleName];
-                    loadingModules[moduleName] = null;
-
-                    while ((callback = callbacks.pop())) {
-                        callback(err, moduleValue);
-                    }
+        function load(err, scriptName) {
+            function callCallbacks(moduleName, err, moduleValue) {
+                if (!loadingModules[moduleName]) {
+                    return;
                 }
 
-                if (err) return callCallbacks(scriptName, err);
+                var callback;
+                var callbacks = loadingModules[moduleName];
+                loadingModules[moduleName] = null;
+
+                while ((callback = callbacks.pop())) {
+                    callback(err, moduleValue);
+                }
+            }
+
+            if (err) return callCallbacks(err, scriptName, null);
+
+            loadMany(deps, effectiveConfig, function (err, moduleValues, moduleScripts) {
+                if (err) return callCallbacks(err, scriptName, null);
 
                 var moduleValue = userCallback(scriptName, callback, moduleValues, moduleScripts);
                 loadedModules[scriptName] = moduleValue;
@@ -443,7 +447,7 @@
 
             queuedModules[scriptName] = function (_, neoConfig) {
                 // TODO use neoConfig
-                load(scriptName);
+                load(null, scriptName);
             };
         } else {
             throw new Error('Invalid define call');
