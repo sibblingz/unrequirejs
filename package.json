@@ -1,0 +1,14 @@
+{
+    "name": "unrequire",
+    "description": "Module inclusion system",
+    "author": "Matt Glazar <matt.glazar@gmail.com>",
+    "version": "0.1.0",
+    "dependencies": {
+        "optimist": "x.x.x"
+    },
+    "bin": {
+        "derequire": "bin/derequire.js"
+    },
+    "engine": "node 0.4.x|node 0.5.x"
+}
+
