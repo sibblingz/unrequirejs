@@ -48,6 +48,10 @@
         return base;
     }
 
+    function clone(object) {
+        return extend({ }, object);
+    }
+
     var loadScriptAsync, loadScriptSync;
     var userCallback;
 
@@ -123,8 +127,8 @@
         return pathJoin(parts);
     }
 
-    function getScriptName(moduleName, config, cwd) {
-        var scriptName = pathJoin(pathResolve(cwd, config.baseUrl, moduleName));
+    function getScriptName(moduleName, config) {
+        var scriptName = pathJoin(pathResolve(config.cwd, config.baseUrl, moduleName));
         scriptName = scriptName + (/\.js$/i.test(scriptName) ? '' : '.js');
         return scriptName;
     }
@@ -162,8 +166,8 @@
         scriptStack.pop();
     }
 
-    function loadOneSync(scriptName, callback) {
-        var loaded = loadScriptSync(scriptName);
+    function loadOneSync(scriptName, config) {
+        var loaded = loadScriptSync(scriptName, clone(config));
         if (loaded) {
             doneLoading(scriptName);
             return true;
@@ -172,17 +176,17 @@
         }
     }
 
-    function loadOneAsync(scriptName) {
+    function loadOneAsync(scriptName, config) {
         loadScriptAsync(scriptName, function () {
             doneLoading(scriptName);
-        });
+        }, clone(config));
     }
 
     function shouldReloadModule(moduleName) {
         return !hasOwn(loadedModules, moduleName) && !hasOwn(loadingModules, moduleName);
     }
 
-    function loadOne(scriptName, callback) {
+    function loadOne(scriptName, config, callback) {
         if (hasOwn(loadedModules, scriptName)) {
             callback(null, loadedModules[scriptName]);
             return;
@@ -191,16 +195,16 @@
             return;
         }
 
-        beginLoading();
+        beginLoading(config);
 
         loadingModules[scriptName] = [ callback ];
 
-        if (!loadOneSync(scriptName)) {
-            loadOneAsync(scriptName);
+        if (!loadOneSync(scriptName, config)) {
+            loadOneAsync(scriptName, config);
         }
     }
 
-    function loadMany(moduleNames, config, cwd, callback) {
+    function loadMany(moduleNames, config, callback) {
         if (COMPAT) {
             moduleNames.push('require');
             moduleNames.push('exports');
@@ -242,7 +246,7 @@
                     var deps = args.deps;
                     var callback = args.callback;
 
-                    newConfig = extend(extend({ }, config), newConfig);
+                    newConfig = extend(clone(config), newConfig);
 
                     return req(newConfig, deps, callback);
                 });
@@ -254,7 +258,7 @@
                     var deps = args.deps;
                     var callback = args.callback;
 
-                    newConfig = extend(extend({ }, config), newConfig);
+                    newConfig = extend(clone(config), newConfig);
 
                     return def(name, config, deps, callback);
                 });
@@ -264,10 +268,13 @@
                 // TODO
                 loaded(i, { });
             } else {
-                var moduleScript = getScriptName(moduleName, config, cwd);
+                var moduleScript = getScriptName(moduleName, config);
                 moduleScripts[i] = moduleScript;
 
-                loadOne(moduleScript, function (err, moduleValue) {
+                // TODO More clean cwd
+                var moduleConfig = extend(clone(config), { cwd: dirName(moduleScript) });
+
+                loadOne(moduleScript, moduleConfig, function (err, moduleValue) {
                     if (err) return callback(err);
 
                     loaded(i, moduleValue);
@@ -337,11 +344,12 @@
         var callback = args.callback;
 
         var effectiveConfig = getEffectiveConfig(config);
+        effectiveConfig = extend(clone(effectiveConfig), { cwd: '' });
 
         beginLoading(config);
 
         // TODO Support cwd for require
-        loadMany(deps, effectiveConfig, '', function (err, moduleValues, moduleScripts) {
+        loadMany(deps, effectiveConfig, function (err, moduleValues, moduleScripts) {
             if (err) throw err;
 
             doneLoading();
@@ -390,7 +398,7 @@
         var effectiveConfig = getEffectiveConfig(config);
 
         function load(scriptName) {
-            loadMany(deps, effectiveConfig, dirName(scriptName), function (err, moduleValues, moduleScripts) {
+            loadMany(deps, effectiveConfig, function (err, moduleValues, moduleScripts) {
                 function callCallbacks(moduleName, err, moduleValue) {
                     if (!loadingModules[moduleName]) {
                         return;
@@ -418,7 +426,7 @@
         if (s) {
             s.callbacks.push(load);
         } else if (name) {
-            load(getScriptName(name, config, effectiveConfig.cwd || ''));
+            load(getScriptName(name, effectiveConfig));
         } else {
             throw new Error('Invalid define call');
         }
