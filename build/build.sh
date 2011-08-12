@@ -18,11 +18,22 @@ function minify_uglifyjs {
         (echo 'WARNING: UglifyJS not installed; skipping UglifyJS minification' >&2; cat)
 }
 
+function strip_debug {
+    awk -f "$DIR/strip-comments.awk" "$@"
+}
+
+OPT_COMMONJS_COMPAT=true
+OPT_ENABLE_ALIASES=true
+
 (
     # Build main JS file
     echo ';// I am awesome'
     echo "(function () {"
-    cat "$ROOT/lib/unrequire.js"
+
+    echo "var COMMONJS_COMPAT = $OPT_COMMONJS_COMPAT;"
+    echo "var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
+    strip_debug "$ROOT/lib/unrequire.js"
+
     echo "}());"
 ) | (
     minify_closure_compiler | minify_uglifyjs
