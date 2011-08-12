@@ -24,6 +24,8 @@ function strip_debug {
 
 OPT_COMMONJS_COMPAT=true
 OPT_ENABLE_ALIASES=true
+OPT_ENABLE_BROWSER=true
+OPT_ENABLE_NODEJS=true
 
 (
     # Build main JS file
@@ -32,6 +34,8 @@ OPT_ENABLE_ALIASES=true
 
     echo "var COMMONJS_COMPAT = $OPT_COMMONJS_COMPAT;"
     echo "var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
+    echo "var ENABLE_BROWSER = $OPT_ENABLE_BROWSER;"
+    echo "var ENABLE_NODEJS = $OPT_ENABLE_NODEJS;"
     strip_debug "$ROOT/lib/unrequire.js"
 
     echo "}());"
