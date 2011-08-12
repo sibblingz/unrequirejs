@@ -105,14 +105,10 @@ function simple(output) {
         });
     }
 
-    var r = require(UNREQUIRE_PATH);
-    r.require.env({
-        context: sandbox,
-        init: function (require, define, env) {
-            sandbox.require = require;
-            sandbox.define = define;
-        },
+    var un = require(UNREQUIRE_PATH);
+    un.reconfigure({
         loadScriptSync: function (scriptName, config) {
+            console.error('loadsync', scriptName);
             var code;
             try {
                 code = fs.readFileSync(scriptName, 'utf8');
@@ -145,9 +141,12 @@ function simple(output) {
         }
     });
 
+    sandbox.require = un.require;
+    sandbox.define = un.define;
+
     output.write('(function () {' + END_SCRIPT);
     output.write(fs.readFileSync(UNREQUIRE_PATH) + END_SCRIPT);
-    r.require({
+    un.require({
         baseUrl: baseUrl
     }, scriptFiles);
     output.write('})();' + END_SCRIPT);
@@ -168,13 +167,9 @@ function advanced(output) {
         return scriptName.replace(/[^a-z_$]/ig, '_');
     }
 
-    var r = require(UNREQUIRE_PATH);
-    r.require.env({
+    var un = require(UNREQUIRE_PATH);
+    un.reconfigure({
         context: sandbox,
-        init: function (require, define, env) {
-            sandbox.require = require;
-            sandbox.define = define;
-        },
         userCallback: function (scriptName, callback, moduleValues, moduleScripts) {
             if (!callback) return;
 
@@ -182,9 +177,6 @@ function advanced(output) {
             var argNames = /\((.*?)\)/.exec(fn)[1].split(/[,\s]+/g);
             var argValues = moduleScripts.map(getScriptVariableName);
             var body = fn.substr(fn.indexOf('{') + 1).replace(/}[\s\r\n]*$/g, '');
-
-            // XXX HACK HACK HACK XXX Remove require, exports, module
-            argValues.splice(-3, 3);
 
             output.write('var ' + getScriptVariableName(scriptName) + ' = ');
             output.write('(function (' + argNames.join(', ') + ') {' + END_SCRIPT);
@@ -195,8 +187,11 @@ function advanced(output) {
         }
     });
 
+    sandbox.require = un.require;
+    sandbox.define = un.define;
+
     output.write('(function () {' + END_SCRIPT);
-    r.require({
+    un.require({
         baseUrl: baseUrl
     }, scriptFiles);
     output.write('})();' + END_SCRIPT);
