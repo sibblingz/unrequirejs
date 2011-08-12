@@ -108,7 +108,6 @@ function simple(output) {
     var un = require(UNREQUIRE_PATH);
     un.reconfigure({
         loadScriptSync: function (scriptName, config) {
-            console.error('loadsync', scriptName);
             var code;
             try {
                 code = fs.readFileSync(scriptName, 'utf8');
