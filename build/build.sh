@@ -30,15 +30,15 @@ OPT_ENABLE_NODEJS=true
 (
     # Build main JS file
     echo ';// I am awesome'
-    echo "(function () {"
+    echo '(function () {'
 
-    echo "var COMMONJS_COMPAT = $OPT_COMMONJS_COMPAT;"
-    echo "var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
-    echo "var ENABLE_BROWSER = $OPT_ENABLE_BROWSER;"
-    echo "var ENABLE_NODEJS = $OPT_ENABLE_NODEJS;"
+    echo "/**@const*/ var COMMONJS_COMPAT = $OPT_COMMONJS_COMPAT;"
+    echo "/**@const*/ var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
+    echo "/**@const*/ var ENABLE_BROWSER = $OPT_ENABLE_BROWSER;"
+    echo "/**@const*/ var ENABLE_NODEJS = $OPT_ENABLE_NODEJS;"
+
     strip_debug "$ROOT/lib/unrequire.js"
-
-    echo "}());"
+    echo '}());'
 ) | (
     minify_closure_compiler | minify_uglifyjs
 ) | (
