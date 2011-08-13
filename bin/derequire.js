@@ -1,36 +1,52 @@
 #!/usr/bin/env node
 
 var path = require('path');
-var args = require('optimist').argv;
+var fs = require('fs');
+
+var optimist = require('optimist')
+    .usage('Usage: $0 [options] scriptFile.js [otherScriptFile.js [...]]\n  Compiles an Unrequire.JS project into one script file')
+    .wrap(80)
+    .describe({
+        'base-url':    'Specify baseUrl require option',
+        'cwd':         'Specify cwd require option',
+        'config-file': 'Use the given JSON configuration file for the main require call',
+        'advanced':    'Derequire using advanced techniques'
+    })
+    .string([ 'base-url', 'cwd', 'config-file' ])
+    .boolean([ 'advanced' ])
+    .demand([ 'base-url' ])
+    .default({
+        'advanced': false
+    });
+
+var args = optimist.argv;
+
+if (!args._.length) {
+    optimist.showHelp();
+    process.exit(1);
+}
 
 var END_SCRIPT = '\n//*/\n';
 var UNREQUIRE_PATH = path.join(__dirname, '..', 'lib', 'unrequire.js');
 
-if (args.h || args.help || !args.level) {
-    console.log('Usage: ' + path.basename(args.$0) + ' [options] --level X scriptFile.js [otherScriptFile.js [...]]');
-    console.log('  Compiles an Unrequire.JS project into one script file');
-    console.log('');
-    console.log('options:');
-    console.log('  --base path     Use path as the default module lookup path');
-    console.log('  --level X       Compress using level X:');
-    console.log('                  SIMPLE: Not supported');
-    console.log('                  ADVANCED: ...');
-    //console.log('  --exclude path  Do not include the specified module');
-    console.log('  -h, --help      Show this help');
-    console.log('');
-    return;
-}
-
 var scriptFiles = args._.map(function (file) {
     return path.resolve(file);
 });
-var level = args.level;
 //var ignoredModules = args.exclude;
-var baseUrl = path.resolve(args.base || process.cwd());
+
+var requireConfig;
+
+if (args['config-file']) {
+    requireConfig = JSON.parse(fs.readFileSync(args['config-file'], 'utf8'));
+} else {
+    requireConfig = { };
+}
+
+if (args['base-url']) requireConfig.baseUrl = args['base-url'];
+if (args['cwd'])      requireConfig.cwd     = args['cwd'];
 
 function simple(output) {
     var vm = require('vm');
-    var fs = require('fs');
 
     var sandbox = {
         require: null,
@@ -145,9 +161,7 @@ function simple(output) {
 
     output.write('(function () {' + END_SCRIPT);
     output.write(fs.readFileSync(UNREQUIRE_PATH) + END_SCRIPT);
-    un.require({
-        baseUrl: baseUrl
-    }, scriptFiles);
+    un.require(requireConfig, scriptFiles);
     output.write('})();' + END_SCRIPT);
 
     scriptFiles.forEach(writeCode);
@@ -190,21 +204,14 @@ function advanced(output) {
     sandbox.define = un.define;
 
     output.write('(function () {' + END_SCRIPT);
-    un.require({
-        baseUrl: baseUrl
-    }, scriptFiles);
+    un.require(requireConfig, scriptFiles);
     output.write('})();' + END_SCRIPT);
 }
 
 var output = process.stdout;
 
-switch (level) {
-    case 'SIMPLE':
-        simple(output);
-        break;
-    case 'ADVANCED':
-        advanced(output);
-        break;
-    default:
-        throw new Error('Unknown level: ' + level);
+if (args.advanced) {
+    advanced(output);
+} else {
+    simple(output);
 }
