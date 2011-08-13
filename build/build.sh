@@ -7,7 +7,7 @@ OUT="$ROOT/unrequire.min.js"
 function minify_closure_compiler {
     # Minify with Google Closure Compiler
     type java > /dev/null 2>&1 &&
-        java -jar "$DIR/google-closure-compiler-1180.jar" --compilation_level SIMPLE_OPTIMIZATIONS ||
+        java -jar "$DIR/google-closure-compiler-1180.jar" --compilation_level ADVANCED_OPTIMIZATIONS ||
         (echo 'WARNING: Java not installed; skipping Google Closure Compiler minification' >&2; cat)
 }
 
