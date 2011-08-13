@@ -22,20 +22,56 @@ function strip_debug {
     awk -f "$DIR/strip-comments.awk" "$@"
 }
 
-OPT_COMMONJS_COMPAT=true
-OPT_ENABLE_ALIASES=true
-OPT_ENABLE_BROWSER=true
-OPT_ENABLE_NODEJS=true
+function print_usage {
+	cat >&2 <<EOF
+Usage: $0 [options]
+options:
+  --help             Print this help
+  --browser          Build only with browser support
+  --nodejs           Build only with Node.JS support
+  --enable-commonjs  Build only with CommonJS compatibility
+  --enable-aliases   Build only with alias support
+EOF
+}
+
+OPT_ENABLE_COMMONJS=false
+OPT_ENABLE_ALIASES=false
+OPT_BROWSER=false
+OPT_NODEJS=false
+
+OPT_ANY=false
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --help) print_usage ; exit 0 ;;
+
+        --browser) OPT_ANY=true ; OPT_BROWSER=true ;;
+        --nodejs)  OPT_ANY=true ; OPT_BROWSER=true ;;
+
+        --enable-commonjs) OPT_ANY=true ; OPT_ENABLE_COMMONJS=true ;;
+        --enable-aliases)  OPT_ANY=true ; OPT_ENABLE_ALIASES=true ;;
+
+        ?) print_usage "$0" ; exit 1 ;;
+    esac
+    shift
+done
+
+if ! $OPT_ANY; then
+    OPT_ENABLE_COMMONJS=true
+    OPT_ENABLE_ALIASES=true
+    OPT_BROWSER=true
+    OPT_NODEJS=true
+fi
 
 (
     # Build main JS file
     echo ';// I am awesome'
     echo '(function () {'
 
-    echo "/**@const*/ var COMMONJS_COMPAT = $OPT_COMMONJS_COMPAT;"
+    echo "/**@const*/ var COMMONJS_COMPAT = $OPT_ENABLE_COMMONJS;"
     echo "/**@const*/ var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
-    echo "/**@const*/ var ENABLE_BROWSER = $OPT_ENABLE_BROWSER;"
-    echo "/**@const*/ var ENABLE_NODEJS = $OPT_ENABLE_NODEJS;"
+    echo "/**@const*/ var ENABLE_BROWSER = $OPT_BROWSER;"
+    echo "/**@const*/ var ENABLE_NODEJS = $OPT_NODEJS;"
 
     strip_debug "$ROOT/lib/unrequire.js"
     echo '}());'
