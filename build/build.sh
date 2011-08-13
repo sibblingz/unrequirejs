@@ -23,7 +23,7 @@ function strip_debug {
 }
 
 function print_usage {
-	cat >&2 <<EOF
+    cat >&2 <<EOF
 Usage: $0 [options]
 options:
   --help             Print this help
@@ -31,6 +31,8 @@ options:
   --nodejs           Build only with Node.JS support
   --enable-commonjs  Build only with CommonJS compatibility
   --enable-aliases   Build only with alias support
+  --output file      Specify the output file
+                     [default: $OUT]
 EOF
 }
 
@@ -40,6 +42,7 @@ OPT_BROWSER=false
 OPT_NODEJS=false
 
 OPT_ANY=false
+OPT_OUT_GIVEN=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -50,6 +53,8 @@ while [ "$#" -gt 0 ]; do
 
         --enable-commonjs) OPT_ANY=true ; OPT_ENABLE_COMMONJS=true ;;
         --enable-aliases)  OPT_ANY=true ; OPT_ENABLE_ALIASES=true ;;
+
+        --output) OPT_OUT_GIVEN=true ; OUT="$2" ; shift ;;
 
         ?) print_usage "$0" ; exit 1 ;;
     esac
@@ -92,4 +97,4 @@ EOF
     cat
 ) > "$OUT"
 
-echo "Build done; see $OUT"
+$OPT_OUT_GIVEN || echo "Build done; see $OUT"

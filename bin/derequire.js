@@ -3,20 +3,25 @@
 var path = require('path');
 var fs = require('fs');
 
+var END_SCRIPT = '\n//*/\n';
+var SAFE_UNREQUIRE_PATH = path.join(__dirname, '..', 'lib', 'unrequire.js');
+
 var optimist = require('optimist')
     .usage('Usage: $0 [options] scriptFile.js [otherScriptFile.js [...]]\n  Compiles an Unrequire.JS project into one script file')
     .wrap(80)
     .describe({
-        'base-url':    'Specify baseUrl require option',
-        'cwd':         'Specify cwd require option',
-        'config-file': 'Use the given JSON configuration file for the main require call',
-        'advanced':    'Derequire using advanced techniques'
+        'base-url':       'Specify baseUrl require option',
+        'cwd':            'Specify cwd require option',
+        'config-file':    'Use the given JSON configuration file for the main require call',
+        'advanced':       'Derequire using advanced techniques',
+        'unrequire-file': 'Path to the Unrequire.JS implementation to include (non-advanced only)'
     })
-    .string([ 'base-url', 'cwd', 'config-file' ])
+    .string([ 'base-url', 'cwd', 'config-file', 'unrequire-file' ])
     .boolean([ 'advanced' ])
     .demand([ 'base-url' ])
     .default({
-        'advanced': false
+        'advanced': false,
+        'unrequire-file': SAFE_UNREQUIRE_PATH
     });
 
 var args = optimist.argv;
@@ -26,8 +31,7 @@ if (!args._.length) {
     process.exit(1);
 }
 
-var END_SCRIPT = '\n//*/\n';
-var UNREQUIRE_PATH = path.join(__dirname, '..', 'lib', 'unrequire.js');
+var outputUnrequirePath = args['unrequire-file'];
 
 var scriptFiles = args._.map(function (file) {
     return path.resolve(file);
@@ -121,7 +125,7 @@ function simple(output) {
         });
     }
 
-    var un = require(UNREQUIRE_PATH);
+    var un = require(SAFE_UNREQUIRE_PATH);
     un.reconfigure({
         loadScriptSync: function (scriptName, config) {
             var code;
@@ -160,7 +164,7 @@ function simple(output) {
     sandbox.define = un.define;
 
     output.write('(function () {' + END_SCRIPT);
-    output.write(fs.readFileSync(UNREQUIRE_PATH) + END_SCRIPT);
+    output.write(fs.readFileSync(outputUnrequirePath) + END_SCRIPT);
     un.require(requireConfig, scriptFiles);
     output.write('})();' + END_SCRIPT);
 
@@ -180,7 +184,7 @@ function advanced(output) {
         return scriptName.replace(/[^a-z_$]/ig, '_');
     }
 
-    var un = require(UNREQUIRE_PATH);
+    var un = require(SAFE_UNREQUIRE_PATH);
     un.reconfigure({
         context: sandbox,
         userCallback: function (scriptName, callback, moduleValues, moduleScripts) {
@@ -210,7 +214,7 @@ function advanced(output) {
 
 var output = process.stdout;
 
-if (args.advanced) {
+if (args['advanced']) {
     advanced(output);
 } else {
     simple(output);
