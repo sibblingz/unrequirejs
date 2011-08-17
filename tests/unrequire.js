@@ -1,1 +1,1 @@
-../unrequire.js
+../lib/unrequire.js
