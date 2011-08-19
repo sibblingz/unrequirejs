@@ -49,7 +49,7 @@ while [ "$#" -gt 0 ]; do
         --help) print_usage ; exit 0 ;;
 
         --browser) OPT_ANY=true ; OPT_BROWSER=true ;;
-        --nodejs)  OPT_ANY=true ; OPT_BROWSER=true ;;
+        --nodejs)  OPT_ANY=true ; OPT_NODEJS=true ;;
 
         --enable-commonjs) OPT_ANY=true ; OPT_ENABLE_COMMONJS=true ;;
         --enable-aliases)  OPT_ANY=true ; OPT_ENABLE_ALIASES=true ;;
