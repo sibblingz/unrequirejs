@@ -77,6 +77,7 @@ fi
     echo "/**@const*/ var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
     echo "/**@const*/ var ENABLE_BROWSER = $OPT_BROWSER;"
     echo "/**@const*/ var ENABLE_NODEJS = $OPT_NODEJS;"
+    echo "/**@const*/ var LOGGING = false;"
 
     strip_debug "$ROOT/lib/unrequire.js"
     echo '}());'
