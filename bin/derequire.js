@@ -66,6 +66,11 @@ function simple(output) {
         }
     }
 
+    // Super flaky comment regexp
+    var commentRe = '//[^\r\n]*';
+    // Extra step so we can split up our RE
+    commentRe = new RegExp(commentRe, 'g');
+
     // I know, I know.  This is super flaky.  Sorry.
     var callsRe = '';
     callsRe += '\\b(require|define)[\\s\\r\\n]*\\('; // require or define call
@@ -74,6 +79,26 @@ function simple(output) {
     callsRe += '([\\s\\r\\n]*\\[[^]*?\\])?';         // Optional dependency list
     // Extra step so we can split up our RE
     callsRe = new RegExp(callsRe, 'g');
+
+    function commentChecker(code) {
+        // Mark comment start/ends
+        commentRe.lastIndex = 0;
+        var comments = [ ];
+        var match;
+        while ((match = commentRe.exec(code))) {
+            comments.push([ match.index, match.index + match[0].length ]);
+        }
+
+        return function isCommented(index) {
+            var i;
+            for (i = 0; i < comments.length; ++i) {
+                if (comments[i][0] <= index && index < comments[i][1]) {
+                    return true;
+                }
+            }
+            return false;
+        };
+    }
 
     function rewriteCalls(code, scriptName, config) {
         var base = path.normalize(config.baseUrl);
@@ -103,7 +128,13 @@ function simple(output) {
         var cwd = moduleParts.slice(0, moduleParts.length - 1).join('/');
         var moduleName = moduleParts[moduleParts.length - 1];
 
-        return code.replace(callsRe, function (call, reqdef, name, config, deps) {
+        var isCommented = commentChecker(code);
+
+        return code.replace(callsRe, function (call, reqdef, name, config, deps, index) {
+            if (isCommented(index)) {
+                return call;
+            }
+
             if (name || reqdef === 'require') {
                 return call;
             } else {
@@ -119,10 +150,17 @@ function simple(output) {
     }
 
     function getCalls(code, scriptName) {
-        var calls = code.match(callsRe) || [ ];
-        return calls.map(function (call) {
-            return call + ', function () { });'
-        });
+        var isCommented = commentChecker(code);
+
+        var calls = [ ];
+        var match;
+        while ((match = callsRe.exec(code))) {
+            if (!isCommented(match.index)) {
+                calls.push(match[0] + ', function () { });');
+            }
+        }
+
+        return calls;
     }
 
     var un = require(SAFE_UNREQUIRE_PATH);
@@ -149,14 +187,14 @@ function simple(output) {
 
             return true;
         },
-        userCallback: function (scriptName, callback, moduleValues, moduleScripts) {
-            moduleScripts.forEach(writeCode);
+        userCallback: function (scriptName, data, moduleValues, scriptNames, moduleNames, callback) {
+            scriptNames.forEach(writeCode);
 
             if (scriptName) {
                 writeCode(scriptName);
             }
 
-            return null;
+            callback(null, null);
         }
     });
 
@@ -168,7 +206,9 @@ function simple(output) {
     un.require(requireConfig, scriptFiles);
     output.write('})();' + END_SCRIPT);
 
-    scriptFiles.forEach(writeCode);
+    Object.keys(codes).forEach(function (scriptFile) {
+        writeCode(scriptFile);
+    });
 }
 
 function advanced(output) {
