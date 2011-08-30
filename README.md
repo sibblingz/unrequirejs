@@ -1,3 +1,5 @@
+# UNREQUIRE.JS IS CURRENTLY UNSTABLE.  DO NOT USE IT IN PRODUCTION SYSTEMS!
+
 # Unrequire.JS
 
 Unrequire.JS is a module definition and inclusion system.  It **partially**
