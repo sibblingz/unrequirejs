@@ -7,18 +7,20 @@ var END_SCRIPT = '\n//*/\n';
 var SAFE_UNREQUIRE_PATH = path.join(__dirname, '..', 'lib', 'unrequire.js');
 
 var optimist = require('optimist')
-    .usage('Usage: $0 [options] scriptFile.js [otherScriptFile.js [...]]\n  Compiles an Unrequire.JS project into one script file')
+    .usage(
+        'Usage: $0 [options] build.json\n' +
+        '  Compiles an Unrequire.JS project into one or several script package files'
+    )
     .wrap(80)
     .describe({
+        'config':         'Use the given JSON configuration file',
         'base-url':       'Specify baseUrl require option',
         'cwd':            'Specify cwd require option',
-        'config-file':    'Use the given JSON configuration file for the main require call',
         'advanced':       'Derequire using advanced techniques',
         'unrequire-file': 'Path to the Unrequire.JS implementation to include (non-advanced only)'
     })
-    .string([ 'base-url', 'cwd', 'config-file', 'unrequire-file' ])
+    .string([ 'config', 'base-url', 'cwd', 'unrequire-file' ])
     .boolean([ 'advanced' ])
-    .demand([ 'base-url' ])
     .default({
         'advanced': false,
         'unrequire-file': SAFE_UNREQUIRE_PATH
@@ -33,23 +35,14 @@ if (!args._.length) {
 
 var outputUnrequirePath = args['unrequire-file'];
 
-var scriptFiles = args._.map(function (file) {
-    return path.resolve(file);
-});
-//var ignoredModules = args.exclude;
+var baseConfig = { };
+if (args['base-url']) baseConfig.baseUrl = path.resolve(args['base-url']);
+if (args['cwd'])      baseConfig.cwd     = path.resolve(args['cwd']);
 
-var requireConfig;
+simple(JSON.parse(fs.readFileSync(args._[0], 'utf8')));
+return;
 
-if (args['config-file']) {
-    requireConfig = JSON.parse(fs.readFileSync(args['config-file'], 'utf8'));
-} else {
-    requireConfig = { };
-}
-
-if (args['base-url']) requireConfig.baseUrl = args['base-url'];
-if (args['cwd'])      requireConfig.cwd     = args['cwd'];
-
-function simple(output) {
+function simpleUn(writeCallback, exportCallback) {
     var vm = require('vm');
 
     var sandbox = {
@@ -61,7 +54,7 @@ function simple(output) {
 
     function writeCode(name) {
         if (Object.prototype.hasOwnProperty.call(codes, name)) {
-            output.write(codes[name] + END_SCRIPT);
+            writeCallback(codes[name] + END_SCRIPT);
             delete codes[name];
         }
     }
@@ -76,7 +69,7 @@ function simple(output) {
     callsRe += '\\b(require|define)[\\s\\r\\n]*\\('; // require or define call
     callsRe += '([\\s\\r\\n]*[\'\"][^,]+,)?';        // Optional first parameter ('name')
     callsRe += '([\\s\\r\\n]*\{[^,]+,)?';            // Optional second parameter ({config})
-    callsRe += '([\\s\\r\\n]*\\[[^]*?\\])?';         // Optional dependency list
+    callsRe += '([\\s\\r\\n]*\\[[^+]*?\\],)?';       // Optional dependency list (sans chars: +)
     // Extra step so we can split up our RE
     callsRe = new RegExp(callsRe, 'g');
 
@@ -125,8 +118,11 @@ function simple(output) {
             moduleParts.push(scriptParts[i]);
         }
 
-        var cwd = moduleParts.slice(0, moduleParts.length - 1).join('/');
-        var moduleName = moduleParts[moduleParts.length - 1];
+        //var cwd = moduleParts.slice(0, moduleParts.length - 1).join('/');
+        //var moduleName = moduleParts[moduleParts.length - 1];
+        var moduleName = moduleParts.join('/');
+
+        exportCallback(moduleParts.join('/'));
 
         var isCommented = commentChecker(code);
 
@@ -141,8 +137,7 @@ function simple(output) {
                 // TODO Support custom configs properly (merge)
 
                 return reqdef + '(' + [
-                    JSON.stringify('./' + moduleName),
-                    JSON.stringify({ cwd: cwd }),
+                    JSON.stringify(moduleName),
                     deps || '[],'
                 ].join(', ');
             }
@@ -156,7 +151,7 @@ function simple(output) {
         var match;
         while ((match = callsRe.exec(code))) {
             if (!isCommented(match.index)) {
-                calls.push(match[0] + ', function () { });');
+                calls.push(match[0] + ' function () { });');
             }
         }
 
@@ -201,13 +196,55 @@ function simple(output) {
     sandbox.require = un.require;
     sandbox.define = un.define;
 
-    output.write('(function () {' + END_SCRIPT);
-    output.write(fs.readFileSync(outputUnrequirePath) + END_SCRIPT);
-    un.require(requireConfig, scriptFiles);
-    output.write('})();' + END_SCRIPT);
+    un.writeRemaining = function () {
+        Object.keys(codes).forEach(function (scriptFile) {
+            writeCode(scriptFile);
+        });
+    };
 
-    Object.keys(codes).forEach(function (scriptFile) {
-        writeCode(scriptFile);
+    return un;
+}
+
+function simple(config) {
+    if (!config.packages) {
+        throw new Error('Must define packages in config file');
+    }
+
+    var currentOutput = null;
+    function writeCallback(data) {
+        currentOutput.write(data);
+    }
+
+    var exportedModules = [ ];
+    function exportCallback(moduleName) {
+        exportedModules.push(moduleName);
+    }
+
+    var un = simpleUn(writeCallback, exportCallback);
+    un.require.config(baseConfig);
+    un.require.config(config.requireConfig || { });
+
+    var runningConfig = { packages: { } };
+
+    config.packages.forEach(function (package) {
+        if (package.outputFile) {
+            currentOutput = fs.createWriteStream(package.outputFile);
+        } else {
+            currentOutput = process.stdout;
+        }
+
+        writeCallback('(function () {' + END_SCRIPT);
+        if (package.unrequire) {
+            writeCallback(fs.readFileSync(outputUnrequirePath) + END_SCRIPT);
+        }
+        writeCallback('require.config(' + JSON.stringify(runningConfig) + ');' + END_SCRIPT);
+        un.require(package.modules);
+        writeCallback('})();' + END_SCRIPT);
+
+        un.writeRemaining();
+
+        runningConfig.packages[package.outputFile] = exportedModules;
+        exportedModules = [ ];
     });
 }
 
