@@ -15,15 +15,17 @@ var optimist = require('optimist')
     .describe({
         'config':         'Use the given JSON configuration file',
         'base-url':       'Specify baseUrl require option',
+        'output-dir':     'Write output files to the specified directory',
         'cwd':            'Specify cwd require option',
         'advanced':       'Derequire using advanced techniques',
         'unrequire-file': 'Path to the Unrequire.JS implementation to include (non-advanced only)'
     })
-    .string([ 'config', 'base-url', 'cwd', 'unrequire-file' ])
+    .string([ 'config', 'base-url', 'cwd', 'unrequire-file', 'output-dir' ])
     .boolean([ 'advanced' ])
     .default({
         'advanced': false,
-        'unrequire-file': SAFE_UNREQUIRE_PATH
+        'unrequire-file': SAFE_UNREQUIRE_PATH,
+        'output-dir': process.cwd(),
     });
 
 var args = optimist.argv;
@@ -34,6 +36,7 @@ if (!args._.length) {
 }
 
 var outputUnrequirePath = args['unrequire-file'];
+var outputDir = args['output-dir'];
 
 var baseConfig = { };
 if (args['base-url']) baseConfig.baseUrl = path.resolve(args['base-url']);
@@ -228,7 +231,8 @@ function simple(config) {
 
     config.packages.forEach(function (package) {
         if (package.outputFile) {
-            currentOutput = fs.createWriteStream(package.outputFile);
+            var filename = path.resolve(outputDir, package.outputFile);
+            currentOutput = fs.createWriteStream(filename);
         } else {
             currentOutput = process.stdout;
         }
