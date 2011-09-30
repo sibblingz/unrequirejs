@@ -85,6 +85,7 @@ fi
     echo "/**@const*/ var BROWSER_SYNC = false;"
     echo "/**@const*/ var ENABLE_PACKAGES = true;"
     echo "/**@const*/ var LOGGING = false;"
+    echo "/**@const*/ var CHECK_CYCLES = false;"
 
     strip_debug "$ROOT/lib/unrequire.js"
     echo '}());'
