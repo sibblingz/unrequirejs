@@ -7,6 +7,8 @@
 
 <p>This test loads a script which loads a non-existant script.  You should see an error stating that "404-source" failed to load "404".</p>
 
+<p><strong>Note</strong>: Chrome does not report when scripts fail to load, so a different error will be shown in Chrome.</p>
+
 <script src="unrequire.js"></script>
 <script>
     require(['assets/404-source'], function(fail) {
