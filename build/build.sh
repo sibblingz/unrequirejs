@@ -91,19 +91,6 @@ fi
     echo '}());'
 ) | (
     minify_closure_compiler | minify_uglifyjs
-) | (
-    # Add license information
-    # TODO Have licenses loaded properly using @preserve
-    cat <<'EOF'
-/*
-unrequire.js
-
-Copyright 2011 Sibblingz, Inc.
-
-Licensed under MIT
-*/
-EOF
-    cat
 ) > "$OUT"
 
 $OPT_OUT_GIVEN || echo "Build done; see $OUT"
