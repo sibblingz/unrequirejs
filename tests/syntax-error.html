@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Unrequire.JS Test - Syntax Error Reporting</title>
+</head>
+<body>
+
+<p>This test should properly report a syntax error.</p>
+
+<script src="unrequire.js"></script>
+<script>
+    require(['assets/syntax-error'], function () {
+        console.error('This should not be called');
+    });
+</script>
+
+</body>
+</html>
