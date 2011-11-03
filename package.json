@@ -2,7 +2,7 @@
     "name": "unrequire",
     "description": "Module inclusion system",
     "author": "Matt Glazar <matt.glazar@gmail.com>",
-    "version": "0.3.4",
+    "version": "0.3.5",
     "dependencies": {
         "optimist": "x.x.x"
     },
