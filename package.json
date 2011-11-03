@@ -9,6 +9,7 @@
     "bin": {
         "derequire": "bin/derequire.js"
     },
+    "main": "index",
     "files": [ "build" ],
     "engine": "node 0.4.x|node 0.5.x"
 }
