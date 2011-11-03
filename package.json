@@ -10,7 +10,7 @@
         "derequire": "bin/derequire.js"
     },
     "main": "index",
-    "files": [ "build" ],
+    "files": [ "build", "index.js", "lib", "README.md", "bin" ],
     "engine": "node 0.4.x|node 0.5.x"
 }
 
