@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<title>Packages test</title>
+
+<script src="../../lib/unrequire.js"></script>
+<script src="../../lib/browser.js"></script>
+<script src="../test.js"></script>
+
+<script type="text/javascript">
+    require.definePackage('packageA', [ 'a', 'b' ]);
+    require.definePackage('packageC', [ 'c' ]);
+
+    require([ 'a', 'b' ], function (A, B) {
+        test.assertEqual('A', A);
+        test.assertEqual('B', B);
+        test.done();
+    });
+</script>
