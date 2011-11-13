@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<title>Explicit name test</title>
+
+<script src="../../lib/unrequire.js"></script>
+<script src="../../lib/browser.js"></script>
+<script src="../test.js"></script>
+
+<script>
+    require([ 'a' ], function (a) {
+        console.log("b.js's string is: " + a);
+        console.log("If this is incorrect, you are experiencing the Webkit script caching bug.");
+        test.done();
+    });
+</script>
