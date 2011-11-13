@@ -18,7 +18,6 @@ Environment support
 * CommonJS support (e.g. `exports` pseudomodule).
 * Node.JS plugin.
 * Spaceport script loading plugin.
-* Webkit cache busting workaround.
 * CDN support.
 * Rename packages to bundles.
 
