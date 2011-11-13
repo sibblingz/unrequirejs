@@ -20,6 +20,7 @@ Environment support
 * Spaceport script loading plugin.
 * Webkit cache busting workaround.
 * CDN support.
+* Rename packages to bundles.
 
 Error reporting
 ---------------
