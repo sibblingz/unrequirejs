@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DIR="$( cd "$( dirname "$0" )" && pwd )"
+DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$DIR/.."
 OUT="$ROOT/unrequire.min.js"
 
