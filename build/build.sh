@@ -29,15 +29,20 @@ options:
   --help             Print this help
   --output file      Specify the output file
                      [default: $OUT]
+  --compress         Compress output
+  --no-compress      Do not compress output
 EOF
 }
 
+OPT_COMPRESS=true
 OPT_OUT_GIVEN=false
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --help) print_usage ; exit 0 ;;
         --output) OPT_OUT_GIVEN=true ; OUT="$2" ; shift ;;
+        --compress) OPT_COMPRESS=true ;;
+        --no-compress) OPT_COMPRESS=false ;;
 
         ?) print_usage "$0" ; exit 1 ;;
     esac
@@ -61,7 +66,7 @@ done
 
     echo '}(window));'
 ) | (
-    minify_closure_compiler
+    if $OPT_COMPRESS; then minify_closure_compiler; else cat; fi
 ) | (
     # For whatever reason, Closure decides it's okay to pollute the global
     # namespace with a `null` variable.  Better safe than sorry!
@@ -70,9 +75,7 @@ done
     cat
     echo '}());'
 ) | (
-    minify_uglifyjs
+    if $OPT_COMPRESS; then minify_uglifyjs; else cat; fi
 ) > "$OUT"
-
-uglifyjs -b -ns -nm < "$OUT" > "$OUT.unmin.js"
 
 $OPT_OUT_GIVEN || echo "Build done; see $OUT"
