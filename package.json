@@ -4,13 +4,15 @@
     "author": "Matt Glazar <matt.glazar@gmail.com>",
     "version": "0.3.5",
     "dependencies": {
-        "optimist": "x.x.x"
+        "optimist": "0.2.6"
     },
     "bin": {
         "derequire": "bin/derequire.js"
     },
     "main": "index",
     "files": [ "build", "index.js", "lib", "README.md", "bin" ],
-    "engine": "node 0.4.x|node 0.5.x"
+    "engines": {
+        "node": "0.4.x || 0.5.x || 0.6.x"
+    }
 }
 
