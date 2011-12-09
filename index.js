@@ -1,1 +1,2 @@
-module.exports = require('./lib/unrequire.js');
+module.exports = require('./lib/unrequire');
+require('./lib/node');

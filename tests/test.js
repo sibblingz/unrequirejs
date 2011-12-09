@@ -49,3 +49,7 @@ var test = (function () {
 
     return test;
 }());
+
+if (typeof module !== 'undefined') {
+    module.exports = test;
+}
