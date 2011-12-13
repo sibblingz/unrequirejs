@@ -6,16 +6,22 @@ OUT="$ROOT/unrequire.min.js"
 
 function minify_closure_compiler {
     # Minify with Google Closure Compiler
-    type java > /dev/null 2>&1 &&
-        java -jar "$DIR/google-closure-compiler-1180.jar" --compilation_level ADVANCED_OPTIMIZATIONS ||
-        (echo 'WARNING: Java not installed; skipping Google Closure Compiler minification' >&2; cat)
+    if type java > /dev/null 2>&1; then
+        java -jar "$DIR/google-closure-compiler-1180.jar" --compilation_level ADVANCED_OPTIMIZATIONS
+    else
+        echo 'WARNING: Java not installed; skipping Google Closure Compiler minification' >&2
+        cat
+    fi
 }
 
 function minify_uglifyjs {
     # Minify with UglifyJS
-    type uglifyjs > /dev/null 2>&1 &&
-        uglifyjs --no-seqs ||
-        (echo 'WARNING: UglifyJS not installed; skipping UglifyJS minification' >&2; cat)
+    if type uglifyjs > /dev/null 2>&1; then
+        uglifyjs --no-seqs
+    else
+        echo 'WARNING: UglifyJS not installed; skipping UglifyJS minification' >&2
+        cat
+    fi
 }
 
 function strip_debug {
@@ -30,12 +36,25 @@ options:
   --output file      Specify the output file
                      [default: $OUT]
   --compress         Compress output
+                     [default]
   --no-compress      Do not compress output
+  --browser          Include web browser plugin
+                     [$PLUGIN_BROWSER]
+                     [default]
+  --node             Include Node.js plugin
+                     [$PLUGIN_NODE]
+  --plugin file.js   Include specified plugin file
 EOF
 }
 
 OPT_COMPRESS=true
 OPT_OUT_GIVEN=false
+OPT_PLUGIN_GIVEN=false
+
+PLUGINS=
+
+PLUGIN_BROWSER="$ROOT/lib/browser.js"
+PLUGIN_NODE="$ROOT/lib/node.js"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -44,10 +63,18 @@ while [ "$#" -gt 0 ]; do
         --compress) OPT_COMPRESS=true ;;
         --no-compress) OPT_COMPRESS=false ;;
 
+        --browser) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_BROWSER" ;;
+        --node) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_NODE" ;;
+        --plugin) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$2" ; shift ;;
+
         ?) print_usage "$0" ; exit 1 ;;
     esac
     shift
 done
+
+if ! $OPT_PLUGIN_GIVEN; then
+    PLUGINS="$PLUGIN_NODE:$PLUGIN_BROWSER"
+fi
 
 (
     echo ';// I am awesome'
@@ -61,8 +88,11 @@ done
     echo "var unrequire = "
     strip_debug "$ROOT/lib/unrequire.js"
 
-    # Plugins
-    cat "$ROOT/lib/browser.js"
+    # Plugins (colon-separated)
+    for plugin_file in $(echo "$PLUGINS" | tr ':' '\n'); do
+        echo "Installing plugin $plugin_file" >&2
+        cat "$plugin_file"
+    done
 
     echo '}(window));'
 ) | (
