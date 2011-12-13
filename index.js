@@ -1,2 +1,2 @@
-module.exports = require('./lib/unrequire');
+module.exports = require('./raw');
 require('./lib/node');
