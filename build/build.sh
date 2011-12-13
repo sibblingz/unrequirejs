@@ -28,6 +28,11 @@ function strip_debug {
     awk -f "$DIR/strip-comments.awk" "$@"
 }
 
+function after_script {
+    echo '//*/';
+    echo ';'
+}
+
 function print_usage {
     cat >&2 <<EOF
 Usage: $0 [options]
@@ -87,14 +92,17 @@ fi
     # Main code
     echo "var unrequire = "
     strip_debug "$ROOT/lib/unrequire.js"
+    after_script
 
     # Plugins (colon-separated)
     for plugin_file in $(echo "$PLUGINS" | tr ':' '\n'); do
         echo "Installing plugin $plugin_file" >&2
-        cat "$plugin_file"
+        strip_debug "$plugin_file"
+        after_script
     done
 
     echo '}(window));'
+    after_script
 ) | (
     if $OPT_COMPRESS; then minify_closure_compiler; else cat; fi
 ) | (
