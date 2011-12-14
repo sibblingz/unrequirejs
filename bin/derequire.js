@@ -232,44 +232,11 @@ function rewriteUnrequireCalls(code, scriptName, config) {
 
     var calls = [ ];
 
-    // NOTE: A lot of the rest of this is
-    // ugly legacy hacked code.
-
-//    var base = path.normalize(config.baseUrl);
-//    var script = path.resolve(base, scriptName);
-//
-//    // HACKY HACKY HACK~
-//    var moduleParts = [ ];
-//    var baseParts = base.split('/');
-//    var scriptParts = script.split('/');
-//    var i;
-//    for (i = 0; i < baseParts.length; ++i) {
-//        if (i >= scriptParts.length) {
-//            // Base path goes further than scriptParts; add ..
-//            moduleParts.push('..');
-//        } else if (baseParts[i] === scriptParts[i]) {
-//            // Matching part; do nothing
-//        } else {
-//            // Differing part; ../part
-//            moduleParts.push('..');
-//            moduleParts.push(scriptParts[i]);
-//        }
-//    }
-//    for (/* */; i < scriptParts.length; ++i) {
-//        moduleParts.push(scriptParts[i]);
-//    }
-
-    //var cwd = moduleParts.slice(0, moduleParts.length - 1).join('/');
-    //var moduleName = moduleParts[moduleParts.length - 1];
-//    var moduleName = moduleParts.join('/');
-
     var moduleName = path.relative(config.baseUrl, scriptName);
-
-    //exportCallback(moduleParts.join('/'));
 
     var isCommented = commentChecker(code);
 
-    // WARNING: Not functional
+    // WARNING: Not pure
     code = code.replace(callsRe, function (rawCall, reqdef, name, config, deps, index) {
         if (isCommented(index)) {
             return rawCall;
@@ -312,114 +279,6 @@ function rewriteUnrequireCalls(code, scriptName, config) {
     };
 }
 
-function simpleUn(writeCallback, exportCallback) {
-    var vm = require('vm');
-
-    var sandbox = {
-        require: null,
-        define: null
-    };
-
-    var codes = { };
-
-    function writeCode(name) {
-        if (Object.prototype.hasOwnProperty.call(codes, name)) {
-            writeCallback(codes[name] + END_SCRIPT);
-            delete codes[name];
-        }
-    }
-
-    var un = require(SAFE_UNREQUIRE_PATH);
-    un.reconfigure({
-        loadScriptSync: function (scriptName, config) {
-            var code;
-            try {
-                code = fs.readFileSync(scriptName, 'utf8');
-            } catch (e){
-                if (e.code === 'EBADF') {
-                    return false;
-                } else {
-                    throw e;
-                }
-            }
-            code = rewriteCalls(code, scriptName, config);
-            codes[scriptName] = code;
-
-            var calls = getCalls(code, scriptName, config);
-
-            calls.forEach(function (call, i) {
-                vm.runInNewContext(call, sandbox, scriptName + ':' + i);
-            });
-
-            return true;
-        },
-        userCallback: function (scriptName, data, moduleValues, scriptNames, moduleNames, callback) {
-            scriptNames.forEach(writeCode);
-
-            if (scriptName) {
-                writeCode(scriptName);
-            }
-
-            callback(null, null);
-        }
-    });
-
-    sandbox.require = un.require;
-    sandbox.define = un.define;
-
-    un.writeRemaining = function () {
-        Object.keys(codes).forEach(function (scriptFile) {
-            writeCode(scriptFile);
-        });
-    };
-
-    return un;
-}
-
-function simple(config) {
-    if (!config.packages) {
-        throw new Error('Must define packages in config file');
-    }
-
-    var currentOutput = null;
-    function writeCallback(data) {
-        currentOutput.write(data);
-    }
-
-    var exportedModules = [ ];
-    function exportCallback(moduleName) {
-        exportedModules.push(moduleName);
-    }
-
-    var un = simpleUn(writeCallback, exportCallback);
-    un.require.config(baseConfig);
-    un.require.config(config.requireConfig || { });
-
-    var runningConfig = { packages: { } };
-
-    config.packages.forEach(function (package) {
-        if (package.outputFile) {
-            var filename = path.resolve(outputDir, package.outputFile);
-            currentOutput = fs.createWriteStream(filename);
-        } else {
-            currentOutput = process.stdout;
-        }
-
-        writeCallback('(function () {' + END_SCRIPT);
-        if (package.unrequire) {
-            writeCallback(fs.readFileSync(outputUnrequirePath) + END_SCRIPT);
-        }
-        writeCallback('require.config(' + JSON.stringify(runningConfig) + ');' + END_SCRIPT);
-        un.require(package.modules);
-        writeCallback('})();' + END_SCRIPT);
-
-        un.writeRemaining();
-
-        runningConfig.packages[package.outputFile] = exportedModules;
-        exportedModules = [ ];
-    });
-}
-
 function advanced(output) {
     var vm = require('vm');
 
@@ -459,12 +318,4 @@ function advanced(output) {
     output.write('(function () {' + END_SCRIPT);
     un.require(requireConfig, scriptFiles);
     output.write('})();' + END_SCRIPT);
-}
-
-var output = process.stdout;
-
-if (args['advanced']) {
-    advanced(output);
-} else {
-    simple(output);
 }
