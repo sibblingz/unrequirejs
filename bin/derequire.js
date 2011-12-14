@@ -170,6 +170,7 @@ unrequire.definePlugin(function (un) {
                     });
                 },
                 'require': function require() {
+                    // TODO
                 }
             };
 
@@ -244,29 +245,30 @@ function rewriteUnrequireCalls(code, scriptName, config) {
 
         var args = [ ];
         function addArg(code) {
-            if (code !== null && typeof code !== 'undefined') {
-                var value;
-                try {
-                    value = eval(code.replace(/,$/, ''));
-                } catch (e) {
-                    throw e;
-                    // Bleh
-                    return;
-                }
-
-                args.push(value);
+            if (code === null || typeof code === 'undefined') {
+                return;
             }
+
+            var value = eval(code.replace(/,$/, ''));
+            args.push(value);
         }
 
-        if (reqdef !== 'require') {
+        switch (reqdef) {
+        case 'define':
             if (name) {
                 addArg(name);
             } else {
                 args.push(moduleName);
             }
+            addArg(config);
+            addArg(deps);
+            break;
+        case 'require':
+            addArg(config);
+            addArg(deps);
+            break;
         }
-        addArg(config);
-        addArg(deps);
+
         calls.push({ fn: [ reqdef ], args: args });
 
         var argsCode = args.map(JSON.stringify).join(', ');
