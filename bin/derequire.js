@@ -31,6 +31,10 @@ var fs = require('fs');
 var END_SCRIPT = '\n//*/\n';
 var SAFE_UNREQUIRE_PATH = path.join(__dirname, '..', 'lib', 'unrequire.js');
 
+function safeComment(message) {
+    return '/* ' + message.replace(/\*\//g, '* /') + ' */';
+}
+
 var optimist = require('optimist')
     .usage(
         'Usage: $0 [options] build.json\n' +
@@ -59,6 +63,8 @@ if (!args._.length) {
 var outputUnrequireFile = args['unrequire-file'];
 var outputDir = args['output-dir'];
 
+var outputUnrequire = fs.readFileSync(outputUnrequireFile, 'utf8');
+
 var unrequire = require(SAFE_UNREQUIRE_PATH);
 
 var buildConfig = JSON.parse(fs.readFileSync(args._[0], 'utf8'));
@@ -68,15 +74,14 @@ if (args['base-url']) {
     buildUnConfig.baseUrl = args['base-url'];
 }
 
-/*
 var buildPlugins = (buildConfig.plugins && buildConfig.plugins.build) || [ ];
-var buildPluginsPath = (buildConfig.plugins && buildConfig.plugins.path) || [ ];
+var pluginsPath = (buildConfig.plugins && buildConfig.plugins.path) || [ ];
+pluginsPath.push(path.join(__dirname, '../lib'));
 
 function findFile(filename, searchPaths) {
     var i;
     for (i = 0; i < searchPaths.length; ++i) {
-        var curFilename = path.resolve(searchPaths[i], pluginName);
-        console.log('checking', curFilename);
+        var curFilename = path.resolve(searchPaths[i], filename);
         if (path.existsSync(curFilename)) {
             return curFilename;
         }
@@ -93,14 +98,15 @@ buildPlugins.forEach(function (pluginName) {
         pluginName += '.js';
     }
 
-    var pluginFilename = findFile(pluginName, buildPluginsPath);
+    var pluginFilename = findFile(pluginName, pluginsPath);
     if (pluginFilename === null) {
         throw new Error("Could not find plugin: " + pluginName);
     }
 
     require(pluginFilename);
 });
-*/
+
+var outputCode = null;
 
 unrequire.definePlugin(function (un) {
     // JavaScript build plugin
@@ -170,7 +176,22 @@ unrequire.definePlugin(function (un) {
                     });
                 },
                 'require': function require() {
-                    // TODO
+                    var args = un.parseRequireArguments(arguments);
+
+                    un.load(args.deps, config, function (errs, _) {
+                        var errorReported = false;
+                        if (errs) {
+                            errs.map(function (err) {
+                                if (err) {
+                                    errorReported = true;
+                                }
+                            });
+                        }
+
+                        if (errorReported) {
+                            throw errs;
+                        }
+                    });
                 }
             };
 
@@ -179,7 +200,7 @@ unrequire.definePlugin(function (un) {
                 functions[fnName].apply(null, call.args);
             });
 
-            console.log(code);
+            outputCode(code, un.normalizeRawName(requestName, config));
 
             callback(null);
         }
@@ -191,12 +212,76 @@ var unConfig = unrequire.joinConfigurations(
     unrequire.createDefaultConfiguration(),
     buildUnConfig
 );
-buildPackages.forEach(function (packageDefinition) {
+
+var runtimePlugins = (buildConfig.plugins && buildConfig.plugins.runtime) || [ ];
+
+var packagesToBuild = buildPackages.slice();
+var filesToPackage = { };
+function buildNextPackage() {
+    var packageDefinition = packagesToBuild.shift();
     var deps = packageDefinition.modules;
+
+    var outputStream = fs.createWriteStream(path.resolve(outputDir, packageDefinition.outputFile));
+
+    if (packageDefinition.unrequire) {
+        outputStream.write(safeComment(outputUnrequireFile) + '\n');
+        outputStream.write(outputUnrequire);
+        outputStream.write(END_SCRIPT);
+
+        // Runtime plugins
+        runtimePlugins.forEach(function (pluginName) {
+            if (!/\.js$/.test(pluginName)) {
+                // Require .js extension
+                pluginName += '.js';
+            }
+
+            var pluginFilename = findFile(pluginName, pluginsPath);
+            if (pluginFilename === null) {
+                throw new Error("Could not find plugin: " + pluginName);
+            }
+
+            var code = fs.readFileSync(pluginFilename, 'utf8');
+            outputStream.write(safeComment(pluginName) + '\n');
+            outputStream.write(code);
+            outputStream.write(END_SCRIPT);
+        });
+
+        // Packages
+        var packagesToFiles = { };
+        Object.keys(filesToPackage).forEach(function (file) {
+            var packageFile = filesToPackage[file].outputFile;
+            if (Object.prototype.hasOwnProperty.call(packagesToFiles, packageFile)) {
+                packagesToFiles[packageFile].push(file);
+            } else {
+                packagesToFiles[packageFile] = [ file ];
+            }
+        });
+
+        Object.keys(packagesToFiles).forEach(function (packageFile) {
+            outputStream.write('require.definePackage(');
+            outputStream.write(JSON.stringify(packageFile));
+            outputStream.write(', ');
+            outputStream.write(JSON.stringify(packagesToFiles[packageFile]));
+            outputStream.write(');\n');
+        });
+    }
+
+    outputCode = function (code, moduleName) {
+        filesToPackage[moduleName] = packageDefinition;
+
+        outputStream.write(safeComment(moduleName) + '\n');
+        outputStream.write(code);
+        outputStream.write(END_SCRIPT);
+    };
+
     unrequire.execute(deps, unConfig, null, function (errs, value) {
         if (errs) throw errs;
+        outputStream.end();
+        buildNextPackage();
     });
-});
+}
+buildNextPackage();
+
 return;
 
 // commentChecker :: CodeString -> Int -> Bool
