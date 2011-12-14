@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<title>Circular dependency test</title>
+
+<script src="../unrequire-browser.js"></script>
+<script src="../test.js"></script>
+
+<p>You should see a console error reporting a circular reference</p>
+
+<script>
+    require([ 'a' ]);
+</script>

@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<title>Missing define call test</title>
+
+<script src="../unrequire-browser.js"></script>
+<script src="../test.js"></script>
+
+<script>
+    require(['no-define'], function (noDefine) {
+        console.error('This should not appear');
+    });
+</script>

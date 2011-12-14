@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<title>Syntax error reporting</title>
+
+<p>This test should properly report a syntax error.</p>
+
+<script src="../unrequire-browser.js"></script>
+<script src="../test.js"></script>
+
+<script>
+    require(['syntax-error'], function () {
+        console.error('This should not be called');
+    });
+</script>
