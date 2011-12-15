@@ -48,6 +48,8 @@ options:
                      [default]
   --node             Include Node.js plugin
                      [$PLUGIN_NODE]
+  --spaceport        Include Spaceport plugin
+                     [$PLUGIN_SPACEPORT]
   --plugin file.js   Include specified plugin file
 EOF
 }
@@ -60,6 +62,7 @@ PLUGINS=
 
 PLUGIN_BROWSER="$ROOT/lib/browser.js"
 PLUGIN_NODE="$ROOT/lib/node.js"
+PLUGIN_SPACEPORT="$ROOT/lib/spaceport.js"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -70,6 +73,7 @@ while [ "$#" -gt 0 ]; do
 
         --browser) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_BROWSER" ;;
         --node) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_NODE" ;;
+        --spaceport) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_SPACEPORT" ;;
         --plugin) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$2" ; shift ;;
 
         ?) print_usage "$0" ; exit 1 ;;
