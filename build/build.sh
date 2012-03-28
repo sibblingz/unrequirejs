@@ -35,7 +35,7 @@ function after_script {
 
 function print_usage {
     cat >&2 <<EOF
-Usage: $0 [options]
+Usage: $0 [options] [plugins]
 options:
   --help             Print this help
   --output file      Specify the output file
@@ -50,8 +50,12 @@ options:
                      [$PLUGIN_NODE]
   --spaceport        Include Spaceport plugin
                      [$PLUGIN_SPACEPORT]
-  --plugin file.js   Include specified plugin file
 EOF
+}
+
+function unknown_option {
+    echo "Unknown option: $1" >&2
+    print_usage "$2"
 }
 
 OPT_COMPRESS=true
@@ -64,8 +68,11 @@ PLUGIN_BROWSER="$ROOT/lib/browser.js"
 PLUGIN_NODE="$ROOT/lib/node.js"
 PLUGIN_SPACEPORT="$ROOT/lib/spaceport.js"
 
+#--plugin) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$2" ; shift ;;
+
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        -h) print_usage ; exit 0 ;;
         --help) print_usage ; exit 0 ;;
         --output) OPT_OUT_GIVEN=true ; OUT="$2" ; shift ;;
         --compress) OPT_COMPRESS=true ;;
@@ -74,9 +81,19 @@ while [ "$#" -gt 0 ]; do
         --browser) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_BROWSER" ;;
         --node) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_NODE" ;;
         --spaceport) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_SPACEPORT" ;;
-        --plugin) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$2" ; shift ;;
 
-        ?) print_usage "$0" ; exit 1 ;;
+        --)
+            OPT_PLUGIN_GIVEN=true
+            while [ "$#" -gt 0 ]; do
+                shift
+                PLUGINS="$PLUGINS:$1"
+            done
+            ;;
+
+        -?) unknown_option "$1" "$0" ; exit 1 ;;
+        --*) unknown_option "$1" "$0" ; exit 1 ;;
+
+        *) OPT_PLUGIN_GIVEN=true PLUGINS="$PLUGINS:$1" ;;
     esac
     shift
 done
