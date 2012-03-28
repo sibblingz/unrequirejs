@@ -5,7 +5,9 @@
 /**@const*/ var ENABLE_PACKAGES = true;
 /**@const*/ var LOGGING = false;
 var unrequire = 
-// upon compilation.  Lines with @ in them should be handled with care.
+// NOTE: Lines between and including those with
+// will be removed upon compilation.
+// Lines with @ in them should be handled with care.
 //
 // NOTE: unrequire is meant to be build by prefixing
 //     var unrequire =
@@ -326,26 +328,23 @@ var unrequire =
         });
     }
 
-    // define([name,] [config,] [deps,] [callback])
+    // define([name,] [deps,] [factory])
     function parseDefineArguments(args) {
         // Note: args may be an arguments object
 
         var name = null;
         var config = { };
         var deps = [ ];
-        var callback = null;
+        var factoryIndex = Math.min(args.length - 1, 2);
+        var factory = args[factoryIndex];
 
         var i = 0;
-        if (typeof args[i] === 'string') {
+        if (i < factoryIndex && typeof args[i] === 'string') {
             name = args[i++];
         }
-        if (isPlainOldObject(args[i])) {
-            config = args[i++];
-        }
-        if (isArray(args[i])) {
+        if (i < factoryIndex && isArray(args[i])) {
             deps = args[i++].slice();
         }
-        factory = args[i];
 
         return {
             'name': name,
@@ -719,6 +718,8 @@ unrequire['definePlugin'](function (un) {
         }
         queue.push(args);
     }
+
+    define.amd = { };
 
     var oldDefine;
     var defineUses = 0;
