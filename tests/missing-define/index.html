@@ -1,6 +1,12 @@
 <!DOCTYPE html>
 <title>Missing define call test</title>
 
+<p>This test ensures that modules without a <code>define</code> call do not resolve to a value.</p>
+
+<p style="color: red;">TODO This test should eventually report an error.</p>
+
+<p>You should <em>not</em> see the text <code>This should not appear</code> in the console.</p>
+
 <script src="../../dist/unrequire.js"></script>
 <script src="../test.js"></script>
 
