@@ -4,6 +4,7 @@
 (function (window) {
 /**@const*/ var ENABLE_PACKAGES = true;
 /**@const*/ var LOGGING = false;
+/**@const*/ var CHECK_CYCLES = true;
 var unrequire = 
 // NOTE: Lines between and including those with
 // will be removed upon compilation.
@@ -23,14 +24,14 @@ var unrequire =
     // }
 
     // Feature flags
+    // (overwritten by build system)
 
     // Note: The Haskell type annotations are (obviously) not 100% accurate
     // (and may hide some things), but it helps in understanding the flow of
     // e.g. module identifier types.
 
-    var log;
     if (LOGGING) {
-        log = console.log.bind(console);
+        var log = console.log.bind(console);
     }
 
     var object = { }; // Shortcut to get access to Object.prototype
@@ -152,6 +153,73 @@ var unrequire =
 
     // pullingFunctions :: Map ModuleName (Error -> Object -> IO ())
     var pullingFunctions = { };
+
+    if (CHECK_CYCLES) {
+        // dependencyGraph :: Map String [String]
+        var dependencyGraph = { };
+
+        function addDependency(from, to) {
+            if (hasOwn(dependencyGraph, from)) {
+                dependencyGraph[from].push(to);
+            } else {
+                dependencyGraph[from] = [ to ];
+            }
+        }
+
+        // scc :: Map String [String] -> [[String]]
+        function scc(graph) {
+            var vertexIndices = { };
+            var vertexLowLinks = { };
+
+            var index = 0;
+            var stack = [ ];
+
+            var sccs = [ ];
+
+            function strongConnect(v) {
+                vertexIndices[v] = index;
+                vertexLowLinks[v] = index;
+                ++index;
+                stack.push(v);
+
+                if (hasOwn(graph, v)) {
+                    graph[v].forEach(function (w) {
+                        if (!hasOwn(vertexIndices, w)) {
+                            strongConnect(w);
+                            vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexLowLinks[w]);
+                        } else if (stack.indexOf(w) >= 0) {
+                            vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexIndices[w]);
+                        }
+                    });
+                }
+
+                if (vertexLowLinks[v] === vertexIndices[v]) {
+                    var scc = [ ];
+                    var w;
+                    do {
+                        w = stack.pop();
+                        scc.push(w);
+                    } while (w !== v);
+                    sccs.push(scc);
+                }
+            }
+
+            Object.keys(graph).forEach(function (vertex) {
+                if (!hasOwn(vertexIndices, vertex)) {
+                    strongConnect(vertex);
+                }
+            });
+
+            return sccs;
+        }
+
+        function getCircularDependencies() {
+            var sccs = scc(dependencyGraph);
+            return sccs.filter(function (scc) {
+                return scc.length > 1;
+            });
+        }
+    }
 
     function needsRequest(moduleName) {
         return !hasOwn(requestErrors, moduleName) && !hasOwn(pushedValues, moduleName) && !hasOwn(announces, moduleName) && announced.indexOf(moduleName) < 0;
@@ -276,11 +344,7 @@ var unrequire =
         }
     }
 
-    function load(deps, config, loadedCallback) {
-        var moduleNames = map(deps, function (dep) {
-            return normalizeRawName(dep, config);
-        });
-
+    function loadModules(moduleNames, config, loadedCallback) {
         if (LOGGING) {
             log("Loading modules " + moduleNames.join(", "));
         }
@@ -302,10 +366,33 @@ var unrequire =
         });
     }
 
-    function execute(deps, config, factory, doneCallback) {
-        // TODO Handle exports, etc. specially
-        load(deps, config, function (errs, values) {
-            // TODO Move this filtering to load
+    function execute(deps, config, factory, doneCallback, exportsCallback) {
+        // AMD compliance: require
+        var extraValues = [ ];
+        if (deps[0] === 'require') {
+            extraValues.push(null); // TODO
+            deps = deps.slice(1);
+        }
+
+        // AMD compliance: module and exports
+        if (deps[0] === 'exports' && deps[1] === 'module') {
+            var exports = { };
+            var module = {
+                'exports': exports
+            };
+
+            extraValues.push(exports, module);
+            deps = deps.slice(2);
+
+            exportsCallback(exports);
+        }
+
+        var moduleNames = map(deps, function (dep) {
+            return normalizeRawName(dep, config);
+        });
+
+        loadModules(moduleNames, config, function (errs, values) {
+            // TODO Move this filtering to loadModules?
             var errorReported = false;
             if (errs) {
                 map(errs, function (err) {
@@ -320,12 +407,14 @@ var unrequire =
             } else {
                 var value = factory;
                 if (typeof factory === 'function') {
-                    value = factory.apply(null, values);
+                    value = factory.apply(null, extraValues.concat(values));
                 }
 
                 doneCallback(null, value);
             }
         });
+
+        return moduleNames;
     }
 
     // define([name,] [deps,] [factory])
@@ -420,17 +509,48 @@ var unrequire =
 
     function handleDefine(args, config, callback) {
         var moduleName = normalizeRawName(args['name'], config);
+
+        if (LOGGING) {
+            log("Define " + moduleName + " " + JSON.stringify(args));
+        }
+
         announce(moduleName, function () {
-            execute(args['deps'], config, args['factory'], function (errs, value) {
+            var pushed = false;
+
+            var depModuleNames = execute(args['deps'], config, args['factory'], function (errs, value) {
                 if (errs) return callback(errs);
 
-                push(moduleName, value);
+                if (!pushed) {
+                    push(moduleName, value);
+                    pushed = true;
+                }
+
                 callback(null);
+            }, function (value) {
+                if (!pushed) {
+                    push(moduleName, value);
+                    pushed = true;
+                }
             });
+
+            if (CHECK_CYCLES) {
+                depModuleNames.forEach(function (dep) {
+                    addDependency(moduleName, dep);
+                });
+
+                var cycles = getCircularDependencies();
+                cycles.forEach(function (cycle) {
+                    console.error("Circular dependency detected between the following modules:\n" + cycle.join("\n"));
+                });
+            }
         });
     }
 
     function handleRequire(args, config, callback) {
+        if (LOGGING) {
+            log("Require " + JSON.stringify(args));
+        }
+
         execute(args['deps'], config, args['factory'], function (errs, value) {
             callback(errs);
         });
@@ -438,7 +558,7 @@ var unrequire =
 
     var api = {
         'definePlugin': definePlugin,
-        'load': load,
+        //'load': load,
         'execute': execute,
 
         'push': push,

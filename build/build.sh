@@ -111,6 +111,7 @@ fi
     # Flags
     echo "/**@const*/ var ENABLE_PACKAGES = true;"
     echo "/**@const*/ var LOGGING = false;"
+    echo "/**@const*/ var CHECK_CYCLES = true;"
 
     # Main code
     echo "var unrequire = "
