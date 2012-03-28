@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e -E -o pipefail
+
 DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$DIR/.."
 OUT="$ROOT/unrequire.min.js"
@@ -84,7 +86,7 @@ while [ "$#" -gt 0 ]; do
 
         --)
             OPT_PLUGIN_GIVEN=true
-            while [ "$#" -gt 0 ]; do
+            while [ "$#" -gt 1 ]; do
                 shift
                 PLUGINS="$PLUGINS:$1"
             done
