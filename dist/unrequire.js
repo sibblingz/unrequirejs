@@ -361,7 +361,7 @@ var unrequire =
 
         // TODO require(string)
         if (typeof args[0] === 'string') {
-            throw new Error("Not supported");
+            throw new Error("require(string) not supported");
         }
 
         var config = { };
@@ -808,6 +808,8 @@ unrequire['definePlugin'](function (un) {
 }());
 //*/
 ;
+if (typeof module !== 'undefined' && typeof exports !== 'undefined' && typeof require === 'function') {
+
 var nodeRequire = require;
 var unrequire = nodeRequire('./unrequire.js');
 unrequire.definePlugin(function (un) {
@@ -882,6 +884,8 @@ unrequire.definePlugin(function (un) {
         }
     };
 });
+
+}
 //*/
 ;
 // This plugin is similar to the browser plugin (see browser.js).
