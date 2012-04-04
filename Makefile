@@ -14,8 +14,10 @@ UNREQUIRE_JS = lib/unrequire.js
 
 ALL_PLUGINS = \
 	lib/browser.js \
-	lib/node.js \
-	lib/spaceport.js
+	lib/inline-require.js
+
+#	lib/node.js \
+#	lib/spaceport.js
 
 dist/unrequire.js: $(BUILD_FILES) $(UNREQUIRE_JS) $(ALL_PLUGINS)
 	build/build.sh --output $@ --no-compress -- $(ALL_PLUGINS)
@@ -29,7 +31,7 @@ amdjs-tests/impl/unrequire: amdjs-tests/impl/unrequire/unrequire.js amdjs-tests/
 
 amdjs-tests/impl/unrequire/unrequire.js: $(BUILD_FILES) $(UNREQUIRE_JS) lib/browser.js
 	$(call ensure_buildable,$@)
-	build/build.sh --output $@ --no-compress -- lib/browser.js
+	build/build.sh --output $@ --no-compress -- lib/browser.js lib/inline-require.js
 
 amdjs-tests/impl/unrequire/config.js: tests/amd-config.js
 	$(call ensure_buildable,$@)
