@@ -3,8 +3,8 @@
 ;// I am awesome
 (function (window) {
 /**@const*/ var ENABLE_PACKAGES = true;
-/**@const*/ var LOGGING = false;
-/**@const*/ var CHECK_CYCLES = true;
+/**@const*/ var LOGGING = true;
+/**@const*/ var ENABLE_INNER_EXPORTS = true;
 var unrequire = 
 // NOTE: Lines between and including those with
 // will be removed upon compilation.
@@ -35,6 +35,8 @@ var unrequire =
     }
 
     var object = { }; // Shortcut to get access to Object.prototype
+
+    function call(fn) { return fn(); }
 
     function hasOwn(object, property) {
         return object.hasOwnProperty.call(object, property);
@@ -102,38 +104,33 @@ var unrequire =
         check(); // In case we have zero functions
     }
 
+    // plugins :: [Plugin]
     var plugins = [ ];
 
-    // normalizeRawName :: RawName -> Configuration -> ModuleName
+    // pluginPriorities :: [Number]
+    // Array values correspond with `plugins`
+    // Higher values in front (i.e. highest at [0])
+    var pluginPriorities = [ ];
+
+    // normalizeRawName :: RawName -> Configuration -> (ModuleName, Plugin)
     function normalizeRawName(rawName, config) {
         if (/^\.\.?(\/|$)/.test(rawName)) {
             // Explicitly relative URL; base off of cwd
             rawName = config['cwd'] + '/' + rawName; // FRAGILE
         }
 
-        // wtb Array#reduce
         var i;
         for (i = 0; i < plugins.length; ++i) {
             var plugin = plugins[i];
             if (plugin['normalize']) {
-                rawName = plugin['normalize'](rawName);
-            }
-        }
-        return rawName;
-    }
-
-    // resolveModuleName :: ModuleName -> (ResourceName,Plugin)
-    function resolveModuleName(moduleName) {
-        var i;
-        for (i = 0; i < plugins.length; ++i) {
-            var plugin = plugins[i];
-            var resolved = plugin['resolve'](moduleName);
-            if (resolved) {
-                return [ resolved, plugin ];
+                var moduleName = plugin['normalize'](rawName);
+                if (moduleName != null) { // Fuzzy
+                    return [ moduleName, plugin ];
+                }
             }
         }
 
-        throw new Error("Could not resolve module name " + moduleName);
+        throw new Error("Could not normalize name " + rawName);
     }
 
     // announces :: Map ModuleName (IO ())
@@ -154,112 +151,92 @@ var unrequire =
     // pullingFunctions :: Map ModuleName (Error -> Object -> IO ())
     var pullingFunctions = { };
 
-    if (CHECK_CYCLES) {
-        // dependencyGraph :: Map String [String]
-        var dependencyGraph = { };
+    // dependencyGraph :: Map String [String]
+    var dependencyGraph = { };
 
-        function addDependency(from, to) {
-            if (hasOwn(dependencyGraph, from)) {
-                dependencyGraph[from].push(to);
-            } else {
-                dependencyGraph[from] = [ to ];
+    function addDependency(from, to) {
+        if (hasOwn(dependencyGraph, from)) {
+            dependencyGraph[from].push(to);
+        } else {
+            dependencyGraph[from] = [ to ];
+        }
+    }
+
+    // scc :: Map String [String] -> [[String]]
+    function scc(graph) {
+        var vertexIndices = { };
+        var vertexLowLinks = { };
+
+        var index = 0;
+        var stack = [ ];
+
+        var sccs = [ ];
+
+        function strongConnect(v) {
+            vertexIndices[v] = index;
+            vertexLowLinks[v] = index;
+            ++index;
+            stack.push(v);
+
+            if (hasOwn(graph, v)) {
+                graph[v].forEach(function (w) {
+                    if (!hasOwn(vertexIndices, w)) {
+                        strongConnect(w);
+                        vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexLowLinks[w]);
+                    } else if (stack.indexOf(w) >= 0) {
+                        vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexIndices[w]);
+                    }
+                });
+            }
+
+            if (vertexLowLinks[v] === vertexIndices[v]) {
+                var scc = [ ];
+                var w;
+                do {
+                    w = stack.pop();
+                    scc.push(w);
+                } while (w !== v);
+                sccs.push(scc);
             }
         }
 
-        // scc :: Map String [String] -> [[String]]
-        function scc(graph) {
-            var vertexIndices = { };
-            var vertexLowLinks = { };
+        Object.keys(graph).forEach(function (vertex) {
+            if (!hasOwn(vertexIndices, vertex)) {
+                strongConnect(vertex);
+            }
+        });
 
-            var index = 0;
-            var stack = [ ];
+        return sccs;
+    }
 
-            var sccs = [ ];
+    function getCircularDependencies() {
+        var sccs = scc(dependencyGraph);
+        return sccs.filter(function (scc) {
+            return scc.length > 1;
+        });
+    }
 
-            function strongConnect(v) {
-                vertexIndices[v] = index;
-                vertexLowLinks[v] = index;
-                ++index;
-                stack.push(v);
-
-                if (hasOwn(graph, v)) {
-                    graph[v].forEach(function (w) {
-                        if (!hasOwn(vertexIndices, w)) {
-                            strongConnect(w);
-                            vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexLowLinks[w]);
-                        } else if (stack.indexOf(w) >= 0) {
-                            vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexIndices[w]);
-                        }
-                    });
-                }
-
-                if (vertexLowLinks[v] === vertexIndices[v]) {
-                    var scc = [ ];
-                    var w;
-                    do {
-                        w = stack.pop();
-                        scc.push(w);
-                    } while (w !== v);
-                    sccs.push(scc);
-                }
+    function checkCycles() {
+        var cycles = getCircularDependencies();
+        cycles.forEach(function (cycle) {
+            if (cycle.length === 1) {
+                return;
             }
 
-            Object.keys(graph).forEach(function (vertex) {
-                if (!hasOwn(vertexIndices, vertex)) {
-                    strongConnect(vertex);
-                }
-            });
+            if (cycle.every(hasOwn.bind(null, pushedValues))) {
+                // Ignore cycles if they have already been resolved
+                return;
+            }
 
-            return sccs;
-        }
-
-        function getCircularDependencies() {
-            var sccs = scc(dependencyGraph);
-            return sccs.filter(function (scc) {
-                return scc.length > 1;
-            });
-        }
+            console.error("Circular dependency detected between the following modules:\n" + cycle.join("\n"));
+        });
     }
 
     function needsRequest(moduleName) {
-        return !hasOwn(requestErrors, moduleName) && !hasOwn(pushedValues, moduleName) && !hasOwn(announces, moduleName) && announced.indexOf(moduleName) < 0;
-    }
-
-    function requestModule(moduleName, config, callback) {
-        // FIXME Config is not accounted for much here
-
-        var pair = resolveModuleName(moduleName);
-        var resourceName = pair[0];
-
-        if (hasOwn(requestCallbacks, resourceName)) {
-            // Module request is executing
-            requestCallbacks[resourceName].push(callback);
-        } else if (hasOwn(requestErrors, resourceName)) {
-            // Module request has already executed
-            callback(requestErrors[resourceName]);
-        } else {
-            // Module not yet requested
-            if (LOGGING) {
-                log("Requesting resource " + resourceName);
-            }
-
-            requestCallbacks[resourceName] = [ callback ];
-            pair[1]['request'](resourceName, config, function (err) {
-                if (LOGGING) {
-                    log("Done requesting resource " + resourceName);
-                }
-
-                requestErrors[resourceName] = err;
-
-                var callbacks = requestCallbacks[resourceName];
-                delete requestCallbacks[resourceName];
-
-                var callback;
-                while ((callback = callbacks.pop())) {
-                    callback(err);
-                }
-            });
-        }
+        return !hasOwn(requestErrors, moduleName)
+            && !hasOwn(pushedValues, moduleName)
+            && !hasOwn(announces, moduleName)
+            && announced.indexOf(moduleName) < 0;
     }
 
     // Report that moduleName has the given value.
@@ -320,6 +297,8 @@ var unrequire =
 
     function announce(moduleName, callback) {
         if (hasOwn(announces, moduleName)) {
+            throw new Error("Module " + moduleName + " already announced");
+
             // We need to allow package definitions to
             // *override* announces when the corresponding
             // script is called.  The packages system will
@@ -329,7 +308,6 @@ var unrequire =
             if (LOGGING) {
                 log("Overriding announce for module " + moduleName);
             }
-            //throw new Error("Module " + moduleName + " already announced");
         } else {
             if (LOGGING) {
                 log("Announcing module " + moduleName);
@@ -344,77 +322,21 @@ var unrequire =
         }
     }
 
-    function loadModules(moduleNames, config, loadedCallback) {
-        if (LOGGING) {
-            log("Loading modules " + moduleNames.join(", "));
-        }
-
-        pullMany(moduleNames, loadedCallback);
-
-        var requestFunctions = map(moduleNames, function (moduleName) {
-            return function (callback) {
-                if (needsRequest(moduleName)) {
-                    requestModule(moduleName, config, callback);
-                } else {
-                    callback(null);
-                };
-            }
-        });
-        callbackMany(requestFunctions, function (errs) {
-            // TODO Report errors (typically missing
-            // announces/pushes)
-        });
-    }
-
-    function execute(deps, config, factory, doneCallback, exportsCallback) {
-        // AMD compliance: require
-        var extraValues = [ ];
-        if (deps[0] === 'require') {
-            extraValues.push(null); // TODO
-            deps = deps.slice(1);
-        }
-
-        // AMD compliance: module and exports
-        if (deps[0] === 'exports' && deps[1] === 'module') {
-            var exports = { };
-            var module = {
-                'exports': exports
-            };
-
-            extraValues.push(exports, module);
-            deps = deps.slice(2);
-
-            exportsCallback(exports);
-        }
-
-        var moduleNames = map(deps, function (dep) {
-            return normalizeRawName(dep, config);
-        });
-
-        loadModules(moduleNames, config, function (errs, values) {
-            // TODO Move this filtering to loadModules?
-            var errorReported = false;
-            if (errs) {
-                map(errs, function (err) {
-                    if (err) {
-                        errorReported = true;
-                    }
-                });
-            }
-
-            if (errorReported) {
-                doneCallback(errs);
-            } else {
-                var value = factory;
-                if (typeof factory === 'function') {
-                    value = factory.apply(null, extraValues.concat(values));
+    function getErrors(errs) {
+        var errorReported = false;
+        if (errs) {
+            map(errs, function (err) {
+                if (err) {
+                    errorReported = true;
                 }
+            });
+        }
 
-                doneCallback(null, value);
-            }
-        });
-
-        return moduleNames;
+        if (errorReported) {
+            return errs;
+        } else {
+            //return undefined;
+        }
     }
 
     // define([name,] [deps,] [factory])
@@ -447,9 +369,8 @@ var unrequire =
     function parseRequireArguments(args) {
         // Note: args may be an arguments object
 
-        // TODO require(string)
         if (typeof args[0] === 'string') {
-            throw new Error("require(string) not supported");
+            return args[0];
         }
 
         var config = { };
@@ -499,50 +420,105 @@ var unrequire =
         };
     }
 
-    function definePlugin(plugin) {
+    function definePlugin(name, plugin, priority) {
         if (typeof plugin === 'function') {
             plugin = plugin(api);
         }
 
+        priority = priority || 0;
+
+        var i;
+        for (i = 0; i < pluginPriorities.length; ++i) {
+            if (pluginPriorities[i] <= priority) {
+                pluginPriorities.splice(i, 0, priority);
+                plugins.splice(i, 0, plugin);
+                return;
+            }
+        }
+
+        pluginPriorities.push(priority);
         plugins.push(plugin);
     }
 
+    // type ModuleLoader
+    //    = [(ModuleName, Plugin)]    -- ^ Modules to load
+    //   -> Configuration
+    //   -> Factory
+    //   -> IO (Maybe Error, Object)  -- ^ Callback to push result.
+    //   -> ModuleLoader              -- ^ "Next" to delegate unloaded modules.
+    //   -> IO ()
+
+    // loadModulesFinal :: ModuleLoader'
+    function loadModulesFinal(modulePairs, config, factory, callback) {
+        var loadCallbacks = modulePairs.map(function (pair) {
+            return function (callback) {
+                pair[1]['load'](pair[0], config, callback);
+            };
+        });
+
+        callbackMany(loadCallbacks, function (err, values) {
+            err = getErrors(err);
+            if (err) return callback(err);
+
+            var value = typeof factory === 'function'
+                ? factory.apply(null, values)
+                : factory;
+
+            callback(null, value);
+        });
+    }
+
+    // loadModulesOf :: Int -> ModuleLoader'
+    function loadModulesOf(pluginIndex, modulePairs, config, factory, callback) {
+        if (pluginIndex >= plugins.length) {
+            loadModulesFinal(modulePairs, config, factory, callback);
+            return;
+        }
+
+        function next(modulePairs, config, factory, callback) {
+            loadModulesOf(pluginIndex + 1, modulePairs, config, factory, callback);
+        }
+
+        var plugin = plugins[pluginIndex];
+        var loadModules = plugin['loadModules'];
+        if (loadModules) {
+            loadModules.call(plugin, modulePairs, config, factory, callback, next);
+        } else {
+            next(modulePairs, config, factory, callback);
+        }
+    }
+
+    // loadModules :: ModuleLoader'
+    var loadModules = loadModulesOf.bind(null, 0);
+
     function handleDefine(args, config, callback) {
-        var moduleName = normalizeRawName(args['name'], config);
+        var moduleName = normalizeRawName(args['name'], config)[0];
 
         if (LOGGING) {
             log("Define " + moduleName + " " + JSON.stringify(args));
         }
 
+        var factory = args['factory'];
+        var deps = args['deps'];
+
         announce(moduleName, function () {
-            var pushed = false;
-
-            var depModuleNames = execute(args['deps'], config, args['factory'], function (errs, value) {
-                if (errs) return callback(errs);
-
-                if (!pushed) {
-                    push(moduleName, value);
-                    pushed = true;
-                }
-
-                callback(null);
-            }, function (value) {
-                if (!pushed) {
-                    push(moduleName, value);
-                    pushed = true;
-                }
+            var modulePairs = map(deps, function (dep) {
+                return normalizeRawName(dep, config);
             });
 
-            if (CHECK_CYCLES) {
-                depModuleNames.forEach(function (dep) {
-                    addDependency(moduleName, dep);
-                });
+            modulePairs.forEach(function (pair) {
+                addDependency(moduleName, pair[0]);
+            });
+            checkCycles();
 
-                var cycles = getCircularDependencies();
-                cycles.forEach(function (cycle) {
-                    console.error("Circular dependency detected between the following modules:\n" + cycle.join("\n"));
-                });
-            }
+            loadModules(modulePairs, config, factory, function on_loadedModules(err, value) {
+                if (err) {
+                    callback(err);
+                } else {
+                    push(moduleName, value);
+                    callback(null);
+                }
+            });
         });
     }
 
@@ -551,23 +527,35 @@ var unrequire =
             log("Require " + JSON.stringify(args));
         }
 
-        execute(args['deps'], config, args['factory'], function (errs, value) {
-            callback(errs);
+        if (typeof args === 'string') {
+            // FIXME args['config'] and config should be merged
+            var moduleName = normalizeRawName(args, config);
+            if (hasOwn(pushedValues, moduleName)) {
+                return pushedValues[moduleName];
+            } else {
+                throw new Error("Module '" + args + "' not loaded");
+            }
+        }
+
+        var factory = args['factory'];
+
+        var modulePairs = map(args['deps'], function (dep) {
+            return normalizeRawName(dep, config);
         });
+
+        loadModules(modulePairs, config, factory, callback);
     }
 
     var api = {
         'definePlugin': definePlugin,
         //'load': load,
-        'execute': execute,
+        //'execute': execute,
 
         'push': push,
         'pull': pull,
         'announce': announce,
-        'requestModule': requestModule,
 
         'normalizeRawName': normalizeRawName,
-        'resolveModuleName': resolveModuleName,
 
         'parseDefineArguments': parseDefineArguments,
         'parseRequireArguments': parseRequireArguments,
@@ -578,38 +566,6 @@ var unrequire =
         'handleDefine': handleDefine,
         'handleRequire': handleRequire
     };
-
-    if (ENABLE_PACKAGES) {
-        api['definePackage'] = function definePackage(rawPackageName, rawModuleNames, config) {
-            var packageName = normalizeRawName(rawPackageName);
-            map(rawModuleNames, function (rawModuleName) {
-                var moduleName = normalizeRawName(rawModuleName);
-                announce(moduleName, function () {
-                    if (LOGGING) {
-                        log("Rerouting " + moduleName + " to " + packageName);
-                    }
-
-                    // Loading the package re-announces the
-                    // module.  See announce() for some
-                    // details.
-
-                    var pair = resolveModuleName(moduleName);
-                    var resourceName = pair[0];
-                    requestErrors[resourceName] = null;
-
-                    requestModule(packageName, config, function (err) {
-                        // TODO Better error reporting
-                        if (err) throw err;
-                        if (!hasOwn(pushedValues, moduleName) && !hasOwn(announces, moduleName) && announced.indexOf(moduleName) < 0) {
-                            throw new Error("Could not find module " + rawModuleName + " in package " + rawPackageName);
-                        }
-
-                        // The module is now pushed; no more work to do
-                    });
-                });
-            });
-        };
-    }
 
     if (typeof window === 'object' && window) {
         // Browsers
@@ -637,7 +593,7 @@ try {
     return;
 }
 
-unrequire['definePlugin'](function (un) {
+unrequire['definePlugin']("browser", function (un) {
     function throwingCallback(err) {
         if (err) {
             throw err;
@@ -862,8 +818,10 @@ unrequire['definePlugin'](function (un) {
     window['define'] = define;
     ++defineUses;
 
+    var requestedModules = [ ];
+
     return {
-        // normalize :: RawName -> ModuleName
+        // normalize :: RawName -> Maybe ModuleName
         'normalize': function normalize(rawName) {
             var filename = rawName.split('/').slice(-1)[0];
             if (!/\.js$/i.test(filename)) {
@@ -876,20 +834,23 @@ unrequire['definePlugin'](function (un) {
             return anchor.href;
         },
 
-        // resolve :: ModuleName -> Maybe RequestName
-        'resolve': function resolve(moduleName) {
+        // load :: ModuleName -> Configuration -> IO (Maybe Error, Object) -> IO ()
+        'load': function load(moduleName, config, callback) {
             var filename = moduleName.split('/').slice(-1)[0];
             if (!/(\.js)?$/i.test(filename)) {
-                // Not a .js file; don't handle
-                return null;
+                return callback(new Error("Only .js modules supported"));
             }
 
-            return moduleName;
-        },
+            un['pull'](moduleName, callback);
 
-        // request :: RequestName -> Configuration -> IO (Maybe Error,IO [Announce])
-        'request': function request(requestName, config, callback) {
-            var newCwd = requestName.replace(/\/[^\/]+$/, '');
+            if (requestedModules.indexOf(moduleName) >= 0) {
+                // Already requested; pull will handle the rest
+                return;
+            }
+
+            requestedModules.push(moduleName);
+
+            var newCwd = moduleName.replace(/\/[^\/]+$/, '');
             config = un['joinConfigurations'](config, { }); // HACK to clone config
             config['cwd'] = newCwd;
 
@@ -900,10 +861,10 @@ unrequire['definePlugin'](function (un) {
             ++defineUses;
 
             if (useInteractiveScript) {
-                defineQueueMap[requestName] = [ ];
+                defineQueueMap[moduleName] = [ ];
             }
 
-            loadScript(requestName, function (err) {
+            loadScript(moduleName, function (err) {
                 --defineUses;
                 if (defineUses < 0) {
                     throw new Error("Bad defineUses state; please report to unrequire developers!");
@@ -915,12 +876,12 @@ unrequire['definePlugin'](function (un) {
                 if (err) return callback(err);
 
                 if (useInteractiveScript) {
-                    flushDefineQueue(defineQueueMap[requestName], requestName, config);
+                    flushDefineQueue(defineQueueMap[moduleName], moduleName, config);
                 } else {
-                    flushDefineQueue(defineQueue, requestName, config);
+                    flushDefineQueue(defineQueue, moduleName, config);
                 }
 
-                callback(null);
+                // pull will call callback
             });
         }
     };
@@ -929,213 +890,76 @@ unrequire['definePlugin'](function (un) {
 }());
 //*/
 ;
-if (typeof module !== 'undefined' && typeof exports !== 'undefined' && typeof require === 'function') {
-
-var nodeRequire = require;
-var unrequire = nodeRequire('./unrequire.js');
-unrequire.definePlugin(function (un) {
-    var path = nodeRequire('path');
-    var vm = nodeRequire('vm');
-    var fs = nodeRequire('fs');
-
-    var globalConfiguration = un['createDefaultConfiguration']();
-
-    function globalRequire() {
-        var args = un['parseRequireArguments'](arguments);
-        un['handleRequire'](args, globalConfiguration, function (err) {
-            throw err;
-        });
-    }
-    globalRequire['definePackage'] = function definePackage(rawPackageName, rawModuleNames) {
-        un['definePackage'](rawPackageName, rawModuleNames, globalConfiguration);
-    };
-
-    // TODO Rename to unrequire and have unrequire.load
-    unrequire.require = globalRequire;
-
-    return {
-        // normalize :: RawName -> ModuleName
-        'normalize': function normalize(rawName) {
-            var filename = rawName.split('/').slice(-1)[0];
-            if (!/\.js$/i.test(filename)) {
-                rawName += '.js';
-            }
-
-            return path.normalize(rawName);
-        },
-
-        // resolve :: ModuleName -> Maybe RequestName
-        'resolve': function resolve(moduleName) {
-            var filename = moduleName.split('/').slice(-1)[0];
-            if (!/(\.js)?$/i.test(filename)) {
-                // Not a .js file; don't handle
-                return null;
-            }
-
-            return moduleName;
-        },
-
-        // request :: RequestName -> Configuration -> IO (Maybe Error,IO [Announce])
-        'request': function request(requestName, config, callback) {
-            var newCwd = requestName.replace(/\/[^\/]+$/, '');
-            config = un['joinConfigurations'](config, { }); // HACK to clone config
-            config['cwd'] = newCwd;
-
-            var context = vm.createContext({
-                require: globalRequire,
-                nodeRequire: nodeRequire,
-                test: nodeRequire('../tests/test'), // HACK FIXME
-                define: function define() {
-                    var args = un['parseDefineArguments'](arguments);
-                    if (!args.name) {
-                        args.name = requestName;
-                    }
-                    un['handleDefine'](args, config, function (err) {
-                        if (err) throw err;
-                    });
-                }
-            });
-
-            var scriptName = requestName;
-            // TODO Async read
-            var code = fs.readFileSync(scriptName, 'utf8');
-            vm.runInContext(code, context, scriptName);
-            callback(null);
-            // TODO Error handling
-        }
-    };
-});
-
-}
-//*/
-;
-// This plugin is similar to the browser plugin (see browser.js).
-// Basically, there is instead a global loadScript function.
-
-(function () {
-
-if (typeof loadScript !== 'function') {
-    return;
-}
-
-unrequire['definePlugin'](function (un) {
+unrequire['definePlugin']("Common.JS", function (un) {
     function throwingCallback(err) {
         if (err) {
             throw err;
         }
     }
 
-    // Queueing behaviour is like in the browser plugin, except we only have
-    // the global queue (non-interactivescript behaviour).  See browser.js for
-    // details.
+    var NAME_REQUIRE = 'require';
+    var NAME_EXPORTS = 'exports';
+    var NAME_MODULE = 'module';
 
-    // defineQueue :: [DefineArguments]
-    var defineQueue = [ ];
-
-    function canSkipDefineQueue() {
-        // HACK to get global defines to work
-        return defineUses === 1;
+    function makeRequire(config) {
+        return function require(/* ... */) {
+            var args = un['parseRequireArguments'](arguments);
+            un['handleRequire'](args, config, throwingCallback);
+        };
     }
 
-    function flushDefineQueue(requestName, config) {
-        var args;
-        while ((args = defineQueue.shift())) {
-            if (args.name === null) {
-                args.name = requestName;
-            }
+    var slice = Array.prototype.slice;
 
-            un['handleDefine'](args, config, throwingCallback);
-        }
+    // Partially applies `fn` with `partialArgs`.
+    function partialA(fn, partialArgs) {
+        return function(/* newArgs... */) {
+            var newArgs = slice.call(arguments);
+            return fn.apply(this, partialArgs.concat(newArgs));
+        };
     }
-
-    function define() {
-        var args = un['parseDefineArguments'](arguments);
-
-        if (canSkipDefineQueue() && args.name) {
-            // HACK
-            un['handleDefine'](args, '(global)', throwingCallback);
-            return;
-        }
-
-        defineQueue.push(args);
-    }
-
-    var oldDefine;
-    var defineUses = 0;
-
-    var globalConfiguration = un['createDefaultConfiguration']();
-
-    function globalRequire() {
-        var args = un['parseRequireArguments'](arguments);
-        un['handleRequire'](args, globalConfiguration, throwingCallback);
-    }
-    globalRequire['definePackage'] = function definePackage(rawPackageName, rawModuleNames) {
-        un['definePackage'](rawPackageName, rawModuleNames, globalConfiguration);
-    };
-
-    // TODO Rename to unrequire and have unrequire.load
-    window['require'] = globalRequire;
-
-    // TODO I don't like this but modules seem to depend upon
-    // it being present without a require
-    window['define'] = define;
-    ++defineUses;
 
     return {
-        // normalize :: RawName -> ModuleName
+        // normalize :: RawName -> Maybe ModuleName
         'normalize': function normalize(rawName) {
-            var filename = rawName.split('/').slice(-1)[0];
-            if (!/\.js$/i.test(filename)) {
-                rawName += '.js';
-            }
-
-            // TODO Path normalization
-            return rawName;
-        },
-
-        // resolve :: ModuleName -> Maybe RequestName
-        'resolve': function resolve(moduleName) {
-            var filename = moduleName.split('/').slice(-1)[0];
-            if (!/(\.js)?$/i.test(filename)) {
-                // Not a .js file; don't handle
+            if ([ NAME_REQUIRE, NAME_EXPORTS, NAME_MODULE ].indexOf(rawName) >= 0) {
+                return rawName;
+            } else {
                 return null;
             }
-
-            return moduleName;
         },
 
-        // request :: RequestName -> Configuration -> IO (Maybe Error,IO [Announce])
-        'request': function request(requestName, config, callback) {
-            var newCwd = requestName.replace(/\/[^\/]+$/, '');
-            config = un['joinConfigurations'](config, { }); // HACK to clone config
-            config['cwd'] = newCwd;
-
-            if (defineUses === 0) {
-                oldDefine = window['define'];
+        // loadModules :: ModuleLoader
+        'loadModules': function loadModules(modulePairs, config, factory, callback, next) {
+            var moduleCount = modulePairs.length;
+            if (typeof factory !== 'function' || !moduleCount) {
+                return next.apply(this, arguments);
             }
-            window['define'] = define;
-            ++defineUses;
 
-            loadScript(requestName, function (err) {
-                --defineUses;
-                if (defineUses < 0) {
-                    throw new Error("Bad defineUses state; please report to unrequire developers!");
+            if (modulePairs[0][0] === NAME_REQUIRE) {
+                var partialArgs = [ makeRequire(config) ];
+                var modulesConsumed = 1;
+
+                if (moduleCount >= 3
+                 && modulePairs[1][0] === NAME_EXPORTS
+                 && modulePairs[2][0] === NAME_MODULE
+                ) {
+                    var exports = { };
+                    var module = { 'exports': exports };
+                    partialArgs.push(exports, module);
+                    modulesConsumed = 3;
+
+                    callback(null, exports);
+                    callback = function () { }; // TODO Check for errors
                 }
-                if (defineUses === 0) {
-                    window['define'] = oldDefine;
-                }
 
-                if (err) return callback(err);
+                factory = partialA(factory, partialArgs);
+                modulePairs = modulePairs.slice(modulesConsumed);
+            }
 
-                flushDefineQueue(requestName, config);
-
-                callback(null);
-            });
+            next(modulePairs, config, factory, callback);
         }
     };
 });
-
-}());
 //*/
 ;
 }(window));

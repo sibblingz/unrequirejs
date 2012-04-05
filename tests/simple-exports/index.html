@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<title>Implicit name test</title>
+
+<p>This test ensures modules with implicit names are loaded properly.</p>
+
+<p>You should see <code>All assertions passed</code> in the console.</p>
+
+<script src="../../dist/unrequire.js"></script>
+<script src="../test.js"></script>
+
+<script>
+    require([ 'a' ], function (a) {
+        test.assert(a.A === 'A', "Module a returns 'A'");
+        test.done();
+    });
+</script>
