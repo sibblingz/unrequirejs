@@ -109,9 +109,7 @@ fi
     echo '(function (window) {'
 
     # Flags
-    echo "/**@const*/ var ENABLE_PACKAGES = true;"
-    echo "/**@const*/ var LOGGING = true;"
-    echo "/**@const*/ var ENABLE_INNER_EXPORTS = true;"
+    echo "/**@const*/ var LOGGING = false;"
 
     # Main code
     echo "var unrequire = "
