@@ -2,9 +2,7 @@
 (function () {
 ;// I am awesome
 (function (window) {
-/**@const*/ var ENABLE_PACKAGES = true;
-/**@const*/ var LOGGING = true;
-/**@const*/ var ENABLE_INNER_EXPORTS = true;
+/**@const*/ var LOGGING = false;
 var unrequire = 
 // NOTE: Lines between and including those with
 // will be removed upon compilation.
@@ -931,25 +929,34 @@ unrequire['definePlugin']("Common.JS", function (un) {
         // loadModules :: ModuleLoader
         'loadModules': function loadModules(modulePairs, config, factory, callback, next) {
             var moduleCount = modulePairs.length;
-            if (typeof factory !== 'function' || !moduleCount) {
+            if (typeof factory !== 'function') {
                 return next.apply(this, arguments);
             }
 
-            if (modulePairs[0][0] === NAME_REQUIRE) {
+            var commonJSModule = !moduleCount;
+
+            if (commonJSModule || modulePairs[0][0] === NAME_REQUIRE) {
                 var partialArgs = [ makeRequire(config) ];
                 var modulesConsumed = 1;
 
-                if (moduleCount >= 3
+                if (commonJSModule || (moduleCount >= 3
                  && modulePairs[1][0] === NAME_EXPORTS
-                 && modulePairs[2][0] === NAME_MODULE
+                 && modulePairs[2][0] === NAME_MODULE)
                 ) {
                     var exports = { };
                     var module = { 'exports': exports };
                     partialArgs.push(exports, module);
                     modulesConsumed = 3;
 
-                    callback(null, exports);
-                    callback = function () { }; // TODO Check for errors
+                    if (moduleCount === 3) {
+                        callback(null, exports);
+                        callback = function () { }; // TODO Error checking
+                    } else {
+                        var oldCallback = callback;
+                        callback = function (err) {
+                            oldCallback(err, exports);
+                        };
+                    }
                 }
 
                 factory = partialA(factory, partialArgs);
