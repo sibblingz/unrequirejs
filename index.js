@@ -1,2 +1,1 @@
-module.exports = require('./raw');
-require('./lib/node');
+module.exports = require('./lib/node');

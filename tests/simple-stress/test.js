@@ -1,3 +1,5 @@
+if (typeof module !== 'undefined') require = require('../node-runner')(global);
+
 test.step('test1');
 require([ 'a' ], function (A) {
     test.assertEqual('A', A);
