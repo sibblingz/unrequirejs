@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<!-- Test must have HTML boilerplate for Android. -->
+<head>
+<title>Unrequire Spaceport test</title>
+<script src="spaceport.js"></script>
+<script src="../../dist/unrequire.js"></script>
+<script src="../test.js"></script>
+<script>
+
+test.step("init");
+
+sp.bridge.swfPath = 'Spaceport.swf';
+sp.init(sp.Class.create('::Main', sp.Sprite, {
+    constructor: function () {
+        var stage = this.stage;
+
+        test.step("load swf and definitions");
+        require([
+            'assets.swf#SomeSymbol',
+            'assets.swf#::SomeSymbol',
+            'assets.swf#package.SomeSymbol',
+            'assets.swf#package::SomeSymbol',
+            'assets.swf#package.subpackage.SomeSymbol',
+            'assets.swf#package.subpackage::SomeSymbol'
+        ], function (
+            SomeSymbol,
+            __SomeSymbol,
+            package_SomeSymbol,
+            package__SomeSymbol,
+            package_subpackage_SomeSymbol,
+            package_subpackage__SomeSymbol
+        ) {
+            test.step("create definition instances");
+
+            var x;
+
+            x = new SomeSymbol();
+            stage.addChild(x);
+
+            x = new package_SomeSymbol();
+            x.y = 80;
+            stage.addChild(x);
+
+            x = new package_subpackage_SomeSymbol();
+            x.y = 160;
+            stage.addChild(x);
+
+            test.step("check definition values");
+            test.assertEqual(SomeSymbol, __SomeSymbol);
+            test.assertEqual(package_SomeSymbol, package__SomeSymbol);
+            test.assertEqual(package_subpackage_SomeSymbol, package_subpackage__SomeSymbol);
+
+            test.done();
+        });
+    }
+}));
+
+</script>
+</head>
+<body>
+<div id="flashContent" style="width: 960px; height: 640px;"></div>
+</body>
+</html>
