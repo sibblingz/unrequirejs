@@ -13,9 +13,9 @@ BUILD_FILES = build/build.sh Makefile
 UNREQUIRE_JS = lib/unrequire.js
 
 ALL_PLUGINS = \
-	lib/browser.js \
-	lib/commonjs.js
+	lib/browser.js
 
+#	lib/commonjs.js \
 #	lib/node.js \
 #	lib/spaceport.js
 
