@@ -2,7 +2,7 @@
     "name": "unrequire",
     "description": "Module inclusion system",
     "author": "Matt Glazar <matt.glazar@gmail.com>",
-    "version": "0.5.0",
+    "version": "0.5.1",
     "main": "index",
     "files": [ "build", "index.js", "lib", "README.md", "bin" ],
     "engines": {
