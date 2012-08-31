@@ -24,20 +24,56 @@ var unrequire =
     // Feature flags
     // (overwritten by build system)
 
-    // Note: The Haskell type annotations are (obviously) not 100% accurate
-    // (and may hide some things), but it helps in understanding the flow of
-    // e.g. module identifier types.
+    // Note: The Haskell type annotations are (obviously)
+    // not 100% accurate (and may hide some things), but it
+    // helps in understanding the flow of e.g. module
+    // identifier types.
 
     if (LOGGING) {
         var log = console.log.bind(console);
     }
 
+    // {{{ Data types
+
+    // A user representation of a module name within some
+    // configuration context.  Must be normalized to a
+    // ModuleName before use.
+    // type RawName = String
+
+    // The name of a module, which may be contained within a
+    // resource.
+    // type ModuleName = String
+
+    // The name of a resource, which can be cached.  Can
+    // contain one or more modules.
+    // type ResourceID = String
+
+    // A ResourceID coupled with its plugin.
+    // data ResourceHandle plugin = ResourceHandle ResourceID
+    function ResourceHandle(id, plugin) {
+        this.id = id;
+        this.plugin = plugin;
+    }
+
+    // type ResourceValue a = Object
+
+    // class Plugin a where
+    //   getResourceID :: ModuleName -> Maybe ResourceID
+    //   fetchResource :: ResourceID -> Configuration -> Errorback -> IO ()
+    //   extractModule :: ResourceValue a -> ModuleName -> Callback Object -> IO ()
+
+    // }}} Data types
+
+    // {{{ JavaScript plumbing
+
+    var min = Math.min;
+
     var object = { }; // Shortcut to get access to Object.prototype
 
     function call(fn) { return fn(); }
 
-    function hasOwn(object, property) {
-        return object.hasOwnProperty.call(object, property);
+    function hasOwn(obj, property) {
+        return object.hasOwnProperty.call(obj, property);
     }
 
     function isPlainOldObject(x) {
@@ -46,6 +82,22 @@ var unrequire =
 
     function map(array, fn) {
         return array.map(fn);
+    }
+
+    function zip(arrays) {
+        var minLength = min.apply(Math, map(arrays, function (xs) {
+            return xs.length;
+        }));
+
+        var out = [ ];
+        var i;
+        for (i = 0; i < minLength; ++i) {
+            out.push(map(arrays, function (xs) {
+                return xs[i];
+            }));
+        }
+
+        return out;
     }
 
     function isArray(x) {
@@ -63,7 +115,7 @@ var unrequire =
         // argumentSets looks like:
         //
         // [
-        //     [ null, null, new Error("Request failed"), null ],
+        //     new Error("Request failed"),
         //     [ 42, 'hello world', undefined, null ]
         // ]
 
@@ -74,6 +126,7 @@ var unrequire =
         function check() {
             if (!called && callCount === functions.length) {
                 called = true;
+                argumentSets[0] = getErrors(argumentSets[0]);
                 doneCallback.apply(null, argumentSets);
             }
         }
@@ -102,56 +155,125 @@ var unrequire =
         check(); // In case we have zero functions
     }
 
+    // }}} JavaScript plumbing
+
+    // {{{ parseUri
+
+    // parseUri 1.2.2
+    // (c) Steven Levithan <stevenlevithan.com>
+    // MIT License
+    // Modified by Matt Glazar <matt@spaceport.io>
+
+    var parseUriRegExp = /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/;
+    var parseUriKeys = 'source,protocol,authority,userInfo,user,password,host,port,relative,path,directory,file,query,anchor'.split(',');
+    var parseUriQueryRegExp = /(?:^|&)([^&=]*)=?([^&]*)/g;
+
+    function parseUri(str) {
+        var match = parseUriRegExp.exec(str);
+        var uri = { };
+        var i = 14;
+        while (i--) {
+            uri[parseUriKeys[i]] = match[i] || '';
+        }
+
+        var query = { };
+        uri['queryKey'] = query;
+        uri[parseUriKeys[12]].replace(parseUriQueryRegExp, function ($0, $1, $2) {
+            if ($1) {
+                query[$1] = $2;
+            }
+        });
+
+        return uri;
+    }
+
+    // }}} parseURI
+
+    function buildUri(protocol, authority, path, query, anchor) {
+        if (protocol && !authority) {
+            throw new Error("Can't have protocol without authority");
+        }
+
+        return [
+            protocol && protocol + ':',
+            authority && '//' + authority,
+            path && path,
+            query && '?' + query,
+            anchor && '#' + anchor
+        ].join('');
+    }
+
     // plugins :: [Plugin]
     var plugins = [ ];
 
-    // pluginPriorities :: [Number]
-    // Array values correspond with `plugins`
-    // Higher values in front (i.e. highest at [0])
-    var pluginPriorities = [ ];
-
-    // normalizeRawName :: RawName -> Configuration -> (ModuleName, Plugin)
+    // normalizeRawName :: RawName -> Configuration -> ModuleName
     function normalizeRawName(rawName, config) {
         if (/^\.\.?(\/|$)/.test(rawName)) {
-            // Explicitly relative URL; base off of cwd
-            rawName = config['cwd'] + '/' + rawName; // FRAGILE
+            // Explicitly relative URL; base off of cwd.
+            return config['cwd'] + '/' + rawName; // FRAGILE
         }
 
+        var uri = parseUri(rawName);
+        var p = uri['path'];
+        if (!uri['authority'] && !/^\//.test(p)) {
+            // Relative (without host or /) path; base off of baseUrl.
+            return config['baseUrl'] + '/' + p;
+        }
+
+        // Absolute path; don't change.
+        return rawName;
+    }
+
+    // normalizeRawName :: [RawName] -> Configuration -> ModuleName
+    function normalizeRawNames(rawNames, config) {
+        return map(rawNames, function (rawName) {
+            return normalizeRawName(rawName, config);
+        });
+    }
+
+    // getResourceHandle :: ModuleName -> IO (ResourceHandle _)
+    function getResourceHandle(moduleName) {
+        // fromJust . msum . map getResourceHandle
         var i;
         for (i = 0; i < plugins.length; ++i) {
             var plugin = plugins[i];
-            if (plugin['normalize']) {
-                var moduleName = plugin['normalize'](rawName);
-                if (moduleName != null) { // Fuzzy
-                    return [ moduleName, plugin ];
-                }
+            var id = plugin['getResourceID'](moduleName);
+            if (id !== null) {
+                return new ResourceHandle(id, plugin);
             }
         }
 
-        throw new Error("Could not normalize name " + rawName);
+        throw new Error("No suitable plugin can handle module: " + moduleName);
     }
 
-    // announces :: Map ModuleName (IO ())
+    // A mapping from from a resource to its announcer.
+    // When an announcer is called (i.e. when a resource is
+    // pulled), it may push a value.
+    // announces :: Map ResourceID (IO ())
     var announces = { };
 
-    // announced :: [ModuleName]
+    // The set of all resources which have had its
+    // announcer called.
+    // announced :: [ResourceID]
     var announced = [ ];
 
-    // requestCallbacks :: Map ResourceName (Error -> IO ())
-    var requestCallbacks = { };
-
-    // requestErrors :: Map ResourceName Error
-    var requestErrors = { };
-
-    // pushedValues :: Map ModuleName Object
+    // The value of each pushed resource.
+    // pushedValues :: Map ResourceID (ResourceValue _)
     var pushedValues = { };
 
-    // pullingFunctions :: Map ModuleName (Error -> Object -> IO ())
+    // Functions to be called when a resource is pushed.
+    // pullingFunctions :: Map ResourceID (Callback (ResourceValue _))
     var pullingFunctions = { };
 
-    // dependencyGraph :: Map String [String]
+    // requestedResources :: Map ResourceID ()
+    var requestedResources = { };
+
+    // Dependency graph {{{
+
+    // dependencyGraph :: Map ResourceID [ResourceID]
     var dependencyGraph = { };
 
+    // addDependency :: ModuleName -> ResourceID -> IO ()
     function addDependency(from, to) {
         if (hasOwn(dependencyGraph, from)) {
             dependencyGraph[from].push(to);
@@ -160,6 +282,8 @@ var unrequire =
         }
     }
 
+    // Finds strongly-connected components in a directed
+    // graph of strings.
     // scc :: Map String [String] -> [[String]]
     function scc(graph) {
         var vertexIndices = { };
@@ -180,9 +304,9 @@ var unrequire =
                 graph[v].forEach(function (w) {
                     if (!hasOwn(vertexIndices, w)) {
                         strongConnect(w);
-                        vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexLowLinks[w]);
+                        vertexLowLinks[v] = min(vertexLowLinks[v], vertexLowLinks[w]);
                     } else if (stack.indexOf(w) >= 0) {
-                        vertexLowLinks[v] = Math.min(vertexLowLinks[v], vertexIndices[w]);
+                        vertexLowLinks[v] = min(vertexLowLinks[v], vertexIndices[w]);
                     }
                 });
             }
@@ -207,6 +331,7 @@ var unrequire =
         return sccs;
     }
 
+    // getCircularDependencies :: IO [[ResourceID]]
     function getCircularDependencies() {
         var sccs = scc(dependencyGraph);
         return sccs.filter(function (scc) {
@@ -214,6 +339,9 @@ var unrequire =
         });
     }
 
+    // Prints error messages for each resource dependency
+    // cycle.
+    // checkCycles :: IO ()
     function checkCycles() {
         var cycles = getCircularDependencies();
         cycles.forEach(function (cycle) {
@@ -230,53 +358,58 @@ var unrequire =
         });
     }
 
-    function needsRequest(moduleName) {
-        return !hasOwn(requestErrors, moduleName)
-            && !hasOwn(pushedValues, moduleName)
-            && !hasOwn(announces, moduleName)
-            && announced.indexOf(moduleName) < 0;
+    // }}} Dependency graph
+
+    // needsRequest :: ResourceID -> IO Bool
+    function needsRequest(resourceID) {
+        return !hasOwn(pushedValues, resourceID)
+            && !hasOwn(announces, resourceID)
+            && announced.indexOf(resourceID) < 0
+            && !hasOwn(requestedResources, resourceID);
     }
 
-    // Report that moduleName has the given value.
-    function push(moduleName, value) {
-        if (hasOwn(pushedValues, moduleName)) {
-            throw new Error("Cannot push to " + moduleName + " which already has value " + pushedValues[moduleName]);
+    // Report that a resource has the given value.
+    // push :: ResourceID -> ResourceValue -> IO ()
+    function push(resourceID, value) {
+        if (hasOwn(pushedValues, resourceID)) {
+            throw new Error("Cannot push to " + resourceID + " which already has value " + pushedValues[resourceID]);
         }
 
         if (LOGGING) {
-            log("Pushing module " + moduleName + " with value " + value);
+            log("Pushing module " + resourceID + " with value " + value);
         }
 
-        pushedValues[moduleName] = value;
+        pushedValues[resourceID] = value;
 
-        if (hasOwn(pullingFunctions, moduleName)) {
-            var functions = pullingFunctions[moduleName];
-            delete pullingFunctions[moduleName];
+        if (hasOwn(pullingFunctions, resourceID)) {
+            var functions = pullingFunctions[resourceID];
+            delete pullingFunctions[resourceID];
             map(functions, function (fn) {
                 fn(null, value);
             });
         }
     }
 
-    // Wait for moduleName to be pushed a value, and call the callback when it
-    // is.
-    function pull(moduleName, callback) {
+    // Wait for a resource to be pushed a value, and call
+    // the callback when it is.
+    // pull :: ResourceID -> Callback (ResourceValue _) -> IO ()
+    function pull(resourceID, callback) {
         if (LOGGING) {
-            log("Pulling module " + moduleName);
+            log("Pulling module " + resourceID);
         }
 
-        if (hasOwn(pushedValues, moduleName)) {
-            callback(null, pushedValues[moduleName]);
+        if (hasOwn(pushedValues, resourceID)) {
+            callback(null, pushedValues[resourceID]);
         } else {
-            if (!hasOwn(pullingFunctions, moduleName)) {
-                pullingFunctions[moduleName] = [ ];
+            if (!hasOwn(pullingFunctions, resourceID)) {
+                pullingFunctions[resourceID] = [ ];
             }
-            pullingFunctions[moduleName].push(callback);
+            pullingFunctions[resourceID].push(callback);
 
-            if (hasOwn(announces, moduleName) && announced.indexOf(moduleName) < 0) {
-                announced.push(moduleName);
-                var announce = announces[moduleName];
-                //delete announces[moduleName];
+            if (hasOwn(announces, resourceID) && announced.indexOf(resourceID) < 0) {
+                announced.push(resourceID);
+                var announce = announces[resourceID];
+                //delete announces[resourceID];
                 // FIXME Should this be here?
                 announce();
             }
@@ -284,42 +417,35 @@ var unrequire =
     }
 
     // Convenience function.
-    function pullMany(moduleNames, callback) {
-        var pullFunctions = map(moduleNames, function (moduleName) {
+    // pullMany :: [ResourceID] -> Callback [ResourceValue _] -> IO ()
+    function pullMany(resourceIDs, callback) {
+        var pullFunctions = map(resourceIDs, function (resourceID) {
             return function (callback) {
-                return pull(moduleName, callback);
+                return pull(resourceID, callback);
             };
         });
         callbackMany(pullFunctions, callback);
     }
 
-    function announce(moduleName, callback) {
-        if (hasOwn(announces, moduleName)) {
-            throw new Error("Module " + moduleName + " already announced");
-
-            // We need to allow package definitions to
-            // *override* announces when the corresponding
-            // script is called.  The packages system will
-            // eventually be unified with the paths: system, so
-            // this won't be a problem then.
-            delete announces[moduleName];
-            if (LOGGING) {
-                log("Overriding announce for module " + moduleName);
-            }
+    // announce :: ResourceID -> NullCallback -> IO ()
+    function announce(resourceID, callback) {
+        if (hasOwn(announces, resourceID)) {
+            throw new Error("Resource " + resourceID + " already announced");
         } else {
             if (LOGGING) {
-                log("Announcing module " + moduleName);
+                log("Announcing resource " + resourceID);
             }
         }
 
-        if (hasOwn(pullingFunctions, moduleName)) {
-            announced.push(moduleName);
+        if (hasOwn(pullingFunctions, resourceID)) {
+            announced.push(resourceID);
             callback();
         } else {
-            announces[moduleName] = callback;
+            announces[resourceID] = callback;
         }
     }
 
+    // getErrors :: Maybe [Maybe Error] -> Maybe [Maybe Error]
     function getErrors(errs) {
         var errorReported = false;
         if (errs) {
@@ -338,13 +464,14 @@ var unrequire =
     }
 
     // define([name,] [deps,] [factory])
+    // parseDefineArguments :: [Object] -> DefineArgs
     function parseDefineArguments(args) {
         // Note: args may be an arguments object
 
         var name = null;
         var config = { };
         var deps = [ ];
-        var factoryIndex = Math.min(args.length - 1, 2);
+        var factoryIndex = min(args.length - 1, 2);
         var factory = args[factoryIndex];
 
         var i = 0;
@@ -364,12 +491,9 @@ var unrequire =
     }
 
     // require([config,] [deps,] [factory])
+    // parseRequireArguments :: [Object] -> RequireArgs
     function parseRequireArguments(args) {
         // Note: args may be an arguments object
-
-        if (typeof args[0] === 'string') {
-            return args[0];
-        }
 
         var config = { };
         var deps = [ ];
@@ -418,104 +542,100 @@ var unrequire =
         };
     }
 
-    function definePlugin(name, plugin, priority) {
+    // definePlugin
+    //   :: (Plugin p)
+    //   => String
+    //   -> p | (Unrequire -> IO p)
+    //   -> IO ()
+    function definePlugin(name, plugin) {
         if (typeof plugin === 'function') {
             plugin = plugin(api);
         }
-
-        priority = priority || 0;
-
-        var i;
-        for (i = 0; i < pluginPriorities.length; ++i) {
-            if (pluginPriorities[i] <= priority) {
-                pluginPriorities.splice(i, 0, priority);
-                plugins.splice(i, 0, plugin);
-                return;
-            }
-        }
-
-        pluginPriorities.push(priority);
         plugins.push(plugin);
     }
 
-    // type ModuleLoader
-    //    = [(ModuleName, Plugin)]    -- ^ Modules to load
+    // loadResources
+    //   :: [ResourceHandle]  -- ^ Resources to load.
     //   -> Configuration
-    //   -> Factory
-    //   -> IO (Maybe Error, Object)  -- ^ Callback to push result.
-    //   -> ModuleLoader              -- ^ "Next" to delegate unloaded modules.
+    //   -> Callback [Object]
     //   -> IO ()
-
-    // loadModulesFinal :: ModuleLoader'
-    function loadModulesFinal(modulePairs, config, factory, callback) {
-        var loadCallbacks = modulePairs.map(function (pair) {
+    function loadResources(resourceHandles, config, callback) {
+        var loadCallbacks = map(resourceHandles, function (handle) {
             return function (callback) {
-                pair[1]['load'](pair[0], config, callback);
+                pull(handle.id, callback);
+                if (needsRequest(handle.id)) {
+                    if (LOGGING) {
+                        log("Requesting " + handle.id);
+                    }
+
+                    requestedResources[handle.id] = true;
+                    handle.plugin['fetchResource'](handle.id, config, function (err) {
+                        if (err) return callback(err);
+                    });
+                }
+            }
+        });
+
+        callbackMany(loadCallbacks, function (err, resourceValues) {
+            callback(err, resourceValues || [ ]);
+        });
+    }
+
+    // extractModules
+    //   :: [ResourceValue, ResourceHandle, ModuleName]
+    //   -> Callback [Object]
+    //   -> IO ()
+    function extractModules(argss, callback) {
+        var extractCallbacks = map(argss, function (args) {
+            return function (callback) {
+                args[1].plugin['extractModule'](
+                    args[0],
+                    args[2],
+                    callback
+                );
             };
         });
 
-        callbackMany(loadCallbacks, function (err, values) {
-            err = getErrors(err);
-            if (err) return callback(err);
-
-            var value = typeof factory === 'function'
-                ? factory.apply(null, values)
-                : factory;
-
-            callback(null, value);
+        callbackMany(extractCallbacks, function (err, moduleValues) {
+            callback(err, moduleValues || [ ]);
         });
     }
 
-    // loadModulesOf :: Int -> ModuleLoader'
-    function loadModulesOf(pluginIndex, modulePairs, config, factory, callback) {
-        if (pluginIndex >= plugins.length) {
-            loadModulesFinal(modulePairs, config, factory, callback);
-            return;
-        }
-
-        function next(modulePairs, config, factory, callback) {
-            loadModulesOf(pluginIndex + 1, modulePairs, config, factory, callback);
-        }
-
-        var plugin = plugins[pluginIndex];
-        var loadModules = plugin['loadModules'];
-        if (loadModules) {
-            loadModules.call(plugin, modulePairs, config, factory, callback, next);
-        } else {
-            next(modulePairs, config, factory, callback);
-        }
-    }
-
-    // loadModules :: ModuleLoader'
-    var loadModules = loadModulesOf.bind(null, 0);
-
     function handleDefine(args, config, callback) {
-        var moduleName = normalizeRawName(args['name'], config)[0];
+        var moduleName = normalizeRawName(args['name'], config);
+        var resourceHandle = getResourceHandle(moduleName);
 
         if (LOGGING) {
-            log("Define " + moduleName + " " + JSON.stringify(args));
+            log("Define " + resourceHandle.id + " " + JSON.stringify(args));
         }
 
         var factory = args['factory'];
         var deps = args['deps'];
 
-        announce(moduleName, function () {
-            var modulePairs = map(deps, function (dep) {
-                return normalizeRawName(dep, config);
-            });
-
-            modulePairs.forEach(function (pair) {
-                addDependency(moduleName, pair[0]);
+        announce(resourceHandle.id, function () {
+            var depModuleNames = normalizeRawNames(deps, config);
+            var depResourceHandles = map(depModuleNames, getResourceHandle);
+            depResourceHandles.forEach(function (depResourceHandle) {
+                addDependency(resourceHandle.id, depResourceHandle.id);
             });
             checkCycles();
 
-            loadModules(modulePairs, config, factory, function on_loadedModules(err, value) {
-                if (err) {
-                    callback(err);
-                } else {
-                    push(moduleName, value);
+            loadResources(depResourceHandles, config, function on_loadedResources(err, resourceValues) {
+                if (err) return callback(err);
+
+                extractModules(zip([
+                    resourceValues,
+                    depResourceHandles,
+                    depModuleNames
+                ]), function (err, moduleValues) {
+                    if (err) return callback(err);
+
+                    var value = typeof factory === 'function'
+                        ? factory.apply(null, moduleValues)
+                        : factory;
+                    push(resourceHandle.id, value);
                     callback(null);
-                }
+                });
             });
         });
     }
@@ -525,35 +645,38 @@ var unrequire =
             log("Require " + JSON.stringify(args));
         }
 
-        if (typeof args === 'string') {
-            // FIXME args['config'] and config should be merged
-            var moduleName = normalizeRawName(args, config);
-            if (hasOwn(pushedValues, moduleName)) {
-                return pushedValues[moduleName];
-            } else {
-                throw new Error("Module '" + args + "' not loaded");
-            }
-        }
-
         var factory = args['factory'];
 
-        var modulePairs = map(args['deps'], function (dep) {
-            return normalizeRawName(dep, config);
-        });
+        var moduleNames = normalizeRawNames(args['deps'], config);
+        var resourceHandles = map(moduleNames, getResourceHandle);
 
-        loadModules(modulePairs, config, factory, callback);
+        loadResources(resourceHandles, config, function on_loadedResources(err, resourceValues) {
+            if (err) return callback(err);
+
+            extractModules(zip([
+                resourceValues,
+                resourceHandles,
+                moduleNames
+            ]), function (err, moduleValues) {
+                if (err) return callback(err);
+
+                if (typeof factory === 'function') {
+                    factory.apply(null, moduleValues);
+                }
+                callback(null);
+            });
+        });
     }
 
     var api = {
         'definePlugin': definePlugin,
-        //'load': load,
-        //'execute': execute,
+
+        'parseUri': parseUri,
+        'buildUri': buildUri,
 
         'push': push,
         'pull': pull,
         'announce': announce,
-
-        'normalizeRawName': normalizeRawName,
 
         'parseDefineArguments': parseDefineArguments,
         'parseRequireArguments': parseRequireArguments,
@@ -608,11 +731,14 @@ unrequire['definePlugin']("browser", function (un) {
 
     var ATTEMPT_SYNC = false;
 
-    var goodResponseCodes = [ 200, 204, 206, 301, 302, 303, 304, 307 ];
+    var goodResponseCodes = [ 0 /* file:// */, 200, 204, 206, 301, 302, 303, 304, 307 ];
 
     var onreadystatechange = 'onreadystatechange';
     var onload = 'onload';
     var onerror = 'onerror';
+
+    var buildUri = un['buildUri']
+    var parseUri = un['parseUri']
 
     // We queue defines because sometimes we don't know what
     // define is associated with what script until *after* the
@@ -763,7 +889,7 @@ unrequire['definePlugin']("browser", function (un) {
         // TODO Better error catching
 
         script[onerror] = function () {
-            callback(new Error('Failed to load script'));
+            callback(new Error("Failed to load script: " + scriptName));
         };
 
         // Remember: we need to attach event handlers before
@@ -804,9 +930,6 @@ unrequire['definePlugin']("browser", function (un) {
         var args = un['parseRequireArguments'](arguments);
         un['handleRequire'](args, globalConfiguration, throwingCallback);
     }
-    globalRequire['definePackage'] = function definePackage(rawPackageName, rawModuleNames) {
-        un['definePackage'](rawPackageName, rawModuleNames, globalConfiguration);
-    };
 
     // TODO Rename to unrequire and have unrequire.load
     window['require'] = globalRequire;
@@ -819,39 +942,52 @@ unrequire['definePlugin']("browser", function (un) {
     var requestedModules = [ ];
 
     return {
-        // normalize :: RawName -> Maybe ModuleName
-        'normalize': function normalize(rawName) {
-            var filename = rawName.split('/').slice(-1)[0];
-            if (!/\.js$/i.test(filename)) {
-                rawName += '.js';
+        // getResourceID :: ModuleName -> Maybe ResourceID
+        'getResourceID': function getResourceID(moduleName) {
+            var uri = parseUri(moduleName);
+            var extensions = uri['file'].split('.').slice(1);
+            var path = uri['path'];
+            if (!extensions.length) {
+                // No extension implies .js.
+                path += '.js';
+            } else if (extensions[extensions.length - 1] !== 'js') {
+                // Not a .js file.
+                return null;
             }
 
-            // Awesomely cheap way to normalize a path.  =]
+            var newModuleName = buildUri(
+                uri['protocol'],
+                uri['authority'],
+                path,
+                uri.query
+                /* no anchor */
+            );
+
+            // Normalize path to absolute URI.
             var anchor = document.createElement('a');
-            anchor.href = rawName;
+            anchor.href = newModuleName;
             return anchor.href;
         },
 
-        // load :: ModuleName -> Configuration -> IO (Maybe Error, Object) -> IO ()
-        'load': function load(moduleName, config, callback) {
-            var filename = moduleName.split('/').slice(-1)[0];
-            if (!/(\.js)?$/i.test(filename)) {
-                return callback(new Error("Only .js modules supported"));
-            }
-
-            un['pull'](moduleName, callback);
-
-            if (requestedModules.indexOf(moduleName) >= 0) {
-                // Already requested; pull will handle the rest
-                return;
-            }
-
-            requestedModules.push(moduleName);
-
-            var newCwd = moduleName.replace(/\/[^\/]+$/, '');
+        // fetchResource
+        //   :: ResourceID
+        //   -> Configuration
+        //   -> Callback ()
+        //   -> IO ()
+        'fetchResource': function fetchResource(scriptName, config, callback) {
+            // Change directory of sub-config, so relative paths are based on
+            // the module's path.
+            var scriptUri = parseUri(scriptName);
+            var newCwd = buildUri(
+                scriptUri['protocol'],
+                scriptUri['authority'],
+                scriptUri['directory']
+                /* no query, no anchor */
+            ).replace(/\/+$/, '');  // .replace is a HACK
             config = un['joinConfigurations'](config, { }); // HACK to clone config
             config['cwd'] = newCwd;
 
+            // Make 'define' function global.
             if (defineUses === 0) {
                 oldDefine = window['define'];
             }
@@ -859,10 +995,10 @@ unrequire['definePlugin']("browser", function (un) {
             ++defineUses;
 
             if (useInteractiveScript) {
-                defineQueueMap[moduleName] = [ ];
+                defineQueueMap[scriptName] = [ ];
             }
 
-            loadScript(moduleName, function (err) {
+            loadScript(scriptName, function (err) {
                 --defineUses;
                 if (defineUses < 0) {
                     throw new Error("Bad defineUses state; please report to unrequire developers!");
@@ -874,99 +1010,23 @@ unrequire['definePlugin']("browser", function (un) {
                 if (err) return callback(err);
 
                 if (useInteractiveScript) {
-                    flushDefineQueue(defineQueueMap[moduleName], moduleName, config);
+                    flushDefineQueue(defineQueueMap[scriptName], scriptName, config);
                 } else {
-                    flushDefineQueue(defineQueue, moduleName, config);
+                    flushDefineQueue(defineQueue, scriptName, config);
                 }
 
-                // pull will call callback
+                callback();
             });
+        },
+
+        // extractModule :: Object -> ModuleName -> Callback Object -> IO ()
+        'extractModule': function extractModule(object, moduleName, callback) {
+            callback(null, object);
         }
     };
 });
 
 }());
-//*/
-;
-unrequire['definePlugin']("Common.JS", function (un) {
-    function throwingCallback(err) {
-        if (err) {
-            throw err;
-        }
-    }
-
-    var NAME_REQUIRE = 'require';
-    var NAME_EXPORTS = 'exports';
-    var NAME_MODULE = 'module';
-
-    function makeRequire(config) {
-        return function require(/* ... */) {
-            var args = un['parseRequireArguments'](arguments);
-            un['handleRequire'](args, config, throwingCallback);
-        };
-    }
-
-    var slice = Array.prototype.slice;
-
-    // Partially applies `fn` with `partialArgs`.
-    function partialA(fn, partialArgs) {
-        return function(/* newArgs... */) {
-            var newArgs = slice.call(arguments);
-            return fn.apply(this, partialArgs.concat(newArgs));
-        };
-    }
-
-    return {
-        // normalize :: RawName -> Maybe ModuleName
-        'normalize': function normalize(rawName) {
-            if ([ NAME_REQUIRE, NAME_EXPORTS, NAME_MODULE ].indexOf(rawName) >= 0) {
-                return rawName;
-            } else {
-                return null;
-            }
-        },
-
-        // loadModules :: ModuleLoader
-        'loadModules': function loadModules(modulePairs, config, factory, callback, next) {
-            var moduleCount = modulePairs.length;
-            if (typeof factory !== 'function') {
-                return next.apply(this, arguments);
-            }
-
-            var commonJSModule = !moduleCount;
-
-            if (commonJSModule || modulePairs[0][0] === NAME_REQUIRE) {
-                var partialArgs = [ makeRequire(config) ];
-                var modulesConsumed = 1;
-
-                if (commonJSModule || (moduleCount >= 3
-                 && modulePairs[1][0] === NAME_EXPORTS
-                 && modulePairs[2][0] === NAME_MODULE)
-                ) {
-                    var exports = { };
-                    var module = { 'exports': exports };
-                    partialArgs.push(exports, module);
-                    modulesConsumed = 3;
-
-                    if (moduleCount === 3) {
-                        callback(null, exports);
-                        callback = function () { }; // TODO Error checking
-                    } else {
-                        var oldCallback = callback;
-                        callback = function (err) {
-                            oldCallback(err, exports);
-                        };
-                    }
-                }
-
-                factory = partialA(factory, partialArgs);
-                modulePairs = modulePairs.slice(modulesConsumed);
-            }
-
-            next(modulePairs, config, factory, callback);
-        }
-    };
-});
 //*/
 ;
 }(window));
