@@ -4,6 +4,8 @@ define ensure_buildable
 	@mkdir -p $(dir $1)
 endef
 
+config ?= debug
+
 all: dist/unrequire.js
 
 commit: dist/unrequire.js
@@ -19,8 +21,18 @@ ALL_PLUGINS = \
 #	lib/node.js \
 #	lib/spaceport.js
 
+BUILD_OPTS ?=
+
+ifeq (debug,$(config))
+	BUILD_OPTS += --no-compress
+else ifeq (release,$(config))
+	BUILD_OPTS += --compress
+else
+	error := $(error "invalid config $(config); config can be one of: debug release")
+endif
+
 dist/unrequire.js: $(BUILD_FILES) $(UNREQUIRE_JS) $(ALL_PLUGINS)
-	build/build.sh --output $@ --no-compress -- $(ALL_PLUGINS)
+	build/build.sh --output $@ $(BUILD_OPTS) -- $(ALL_PLUGINS)
 
 ####################
 # AMD test suite
