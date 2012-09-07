@@ -16,11 +16,11 @@ UNREQUIRE_JS = lib/unrequire.js
 
 ALL_PLUGINS = \
 	lib/browser.js \
-	lib/spaceport-swf.js
+	lib/spaceport-swf.js \
+	lib/spaceport.js
 
 #	lib/commonjs.js \
 #	lib/node.js \
-#	lib/spaceport.js
 
 BUILD_OPTS ?=
 

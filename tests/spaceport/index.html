@@ -8,53 +8,58 @@
 <script src="../test.js"></script>
 <script>
 
-test.step("init");
+test.step("createContext");
 
-sp.bridge.swfPath = 'Spaceport.swf';
-sp.init(sp.Class.create('::Main', sp.Sprite, {
-    constructor: function () {
-        var stage = this.stage;
+sp.createContext(function (err, sp) {
+    test.step("init");
 
-        test.step("load swf and definitions");
-        require([
-            'assets.swf#SomeSymbol',
-            'assets.swf#::SomeSymbol',
-            'assets.swf#package.SomeSymbol',
-            'assets.swf#package::SomeSymbol',
-            'assets.swf#package.subpackage.SomeSymbol',
-            'assets.swf#package.subpackage::SomeSymbol'
-        ], function (
-            SomeSymbol,
-            __SomeSymbol,
-            package_SomeSymbol,
-            package__SomeSymbol,
-            package_subpackage_SomeSymbol,
-            package_subpackage__SomeSymbol
-        ) {
-            test.step("create definition instances");
+    sp.init(sp.Class.create('::Main', sp.Sprite, {
+        constructor: function () {
+            var stage = this.stage;
 
-            var x;
+            test.step("load swf and definitions");
+            require([
+                'assets.swf#SomeSymbol',
+                'assets.swf#::SomeSymbol',
+                'assets.swf#package.SomeSymbol',
+                'assets.swf#package::SomeSymbol',
+                'assets.swf#package.subpackage.SomeSymbol',
+                'assets.swf#package.subpackage::SomeSymbol'
+            ], function (
+                SomeSymbol,
+                __SomeSymbol,
+                package_SomeSymbol,
+                package__SomeSymbol,
+                package_subpackage_SomeSymbol,
+                package_subpackage__SomeSymbol
+            ) {
+                test.step("create definition instances");
 
-            x = new SomeSymbol();
-            stage.addChild(x);
+                var x;
 
-            x = new package_SomeSymbol();
-            x.y = 80;
-            stage.addChild(x);
+                x = new SomeSymbol();
+                stage.addChild(x);
 
-            x = new package_subpackage_SomeSymbol();
-            x.y = 160;
-            stage.addChild(x);
+                x = new package_SomeSymbol();
+                x.y = 80;
+                stage.addChild(x);
 
-            test.step("check definition values");
-            test.assertEqual(SomeSymbol, __SomeSymbol);
-            test.assertEqual(package_SomeSymbol, package__SomeSymbol);
-            test.assertEqual(package_subpackage_SomeSymbol, package_subpackage__SomeSymbol);
+                x = new package_subpackage_SomeSymbol();
+                x.y = 160;
+                stage.addChild(x);
 
-            test.done();
-        });
-    }
-}));
+                test.step("check definition values");
+                test.assertEqual(SomeSymbol, __SomeSymbol);
+                test.assertEqual(package_SomeSymbol, package__SomeSymbol);
+                test.assertEqual(package_subpackage_SomeSymbol, package_subpackage__SomeSymbol);
+
+                test.done();
+            });
+        }
+    }));
+}, {
+    'swfPath': 'Spaceport.swf'
+});
 
 </script>
 </head>
