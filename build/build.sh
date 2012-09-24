@@ -1,97 +1,141 @@
 #!/bin/bash
 
-DIR="$( cd "$( dirname "$0" )" && pwd )"
+set -e -E -o pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$DIR/.."
 OUT="$ROOT/unrequire.min.js"
 
 function minify_closure_compiler {
     # Minify with Google Closure Compiler
-    type java > /dev/null 2>&1 &&
-        java -jar "$DIR/google-closure-compiler-1180.jar" --compilation_level SIMPLE_OPTIMIZATIONS ||
-        (echo 'WARNING: Java not installed; skipping Google Closure Compiler minification' >&2; cat)
+    if type java > /dev/null 2>&1; then
+        java -jar "$DIR/google-closure-compiler-1180.jar" --compilation_level ADVANCED_OPTIMIZATIONS
+    else
+        echo 'WARNING: Java not installed; skipping Google Closure Compiler minification' >&2
+        cat
+    fi
 }
 
 function minify_uglifyjs {
     # Minify with UglifyJS
-    type uglifyjs > /dev/null 2>&1 &&
-        uglifyjs ||
-        (echo 'WARNING: UglifyJS not installed; skipping UglifyJS minification' >&2; cat)
+    if type uglifyjs > /dev/null 2>&1; then
+        uglifyjs --no-seqs
+    else
+        echo 'WARNING: UglifyJS not installed; skipping UglifyJS minification' >&2
+        cat
+    fi
 }
 
 function strip_debug {
     awk -f "$DIR/strip-comments.awk" "$@"
 }
 
+function after_script {
+    echo '//*/';
+    echo ';'
+}
+
 function print_usage {
     cat >&2 <<EOF
-Usage: $0 [options]
+Usage: $0 [options] [plugins]
 options:
   --help             Print this help
-  --browser          Build only with browser support
-  --nodejs           Build only with Node.JS support
-  --spaceport        Build only with Spaceport support
-  --enable-commonjs  Build only with CommonJS compatibility
-  --enable-aliases   Build only with alias support
   --output file      Specify the output file
                      [default: $OUT]
+  --compress         Compress output
+                     [default]
+  --no-compress      Do not compress output
+  --browser          Include web browser plugin
+                     [$PLUGIN_BROWSER]
+                     [default]
+  --node             Include Node.js plugin
+                     [$PLUGIN_NODE]
+  --spaceport        Include Spaceport plugin
+                     [$PLUGIN_SPACEPORT]
 EOF
 }
 
-OPT_ENABLE_COMMONJS=false
-OPT_ENABLE_ALIASES=false
-OPT_BROWSER=false
-OPT_NODEJS=false
-OPT_SPACEPORT=false
+function unknown_option {
+    echo "Unknown option: $1" >&2
+    print_usage "$2"
+}
 
-OPT_ANY=false
+OPT_COMPRESS=true
 OPT_OUT_GIVEN=false
+OPT_PLUGIN_GIVEN=false
+
+PLUGINS=
+
+PLUGIN_BROWSER="$ROOT/lib/browser.js"
+PLUGIN_NODE="$ROOT/lib/node.js"
+PLUGIN_SPACEPORT="$ROOT/lib/spaceport.js"
+
+#--plugin) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$2" ; shift ;;
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
+        -h) print_usage ; exit 0 ;;
         --help) print_usage ; exit 0 ;;
-
-        --browser)   OPT_ANY=true ; OPT_BROWSER=true ;;
-        --nodejs)    OPT_ANY=true ; OPT_NODEJS=true ;;
-        --spaceport) OPT_ANY=true ; OPT_SPACEPORT=true ;;
-
-        --enable-commonjs) OPT_ANY=true ; OPT_ENABLE_COMMONJS=true ;;
-        --enable-aliases)  OPT_ANY=true ; OPT_ENABLE_ALIASES=true ;;
-
         --output) OPT_OUT_GIVEN=true ; OUT="$2" ; shift ;;
+        --compress) OPT_COMPRESS=true ;;
+        --no-compress) OPT_COMPRESS=false ;;
 
-        ?) print_usage "$0" ; exit 1 ;;
+        --browser) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_BROWSER" ;;
+        --node) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_NODE" ;;
+        --spaceport) OPT_PLUGIN_GIVEN=true ; PLUGINS="$PLUGINS:$PLUGIN_SPACEPORT" ;;
+
+        --)
+            OPT_PLUGIN_GIVEN=true
+            while [ "$#" -gt 1 ]; do
+                shift
+                PLUGINS="$PLUGINS:$1"
+            done
+            ;;
+
+        -?) unknown_option "$1" "$0" ; exit 1 ;;
+        --*) unknown_option "$1" "$0" ; exit 1 ;;
+
+        *) OPT_PLUGIN_GIVEN=true PLUGINS="$PLUGINS:$1" ;;
     esac
     shift
 done
 
-if ! $OPT_ANY; then
-    OPT_ENABLE_COMMONJS=true
-    OPT_ENABLE_ALIASES=true
-    OPT_BROWSER=true
-    OPT_NODEJS=true
-    OPT_SPACEPORT=true
+if ! $OPT_PLUGIN_GIVEN; then
+    PLUGINS="$PLUGIN_NODE:$PLUGIN_BROWSER"
 fi
 
 (
-    # Build main JS file
+    echo ';// I am awesome'
+    echo '(function (window) {'
+
+    # Flags
+    echo "/**@const*/ var LOGGING = false;"
+
+    # Main code
+    echo "var unrequire = "
+    strip_debug "$ROOT/lib/unrequire.js"
+    after_script
+
+    # Plugins (colon-separated)
+    for plugin_file in $(echo "$PLUGINS" | tr ':' '\n'); do
+        echo "Installing plugin $plugin_file" >&2
+        strip_debug "$plugin_file"
+        after_script
+    done
+
+    echo '}(window));'
+    after_script
+) | (
+    if $OPT_COMPRESS; then minify_closure_compiler; else cat; fi
+) | (
+    # For whatever reason, Closure decides it's okay to pollute the global
+    # namespace with a `null` variable.  Better safe than sorry!
     echo ';// I am awesome'
     echo '(function () {'
-
-    echo "/**@const*/ var COMMONJS_COMPAT = $OPT_ENABLE_COMMONJS;"
-    echo "/**@const*/ var ENABLE_ALIASES = $OPT_ENABLE_ALIASES;"
-    echo "/**@const*/ var ENABLE_BROWSER = $OPT_BROWSER;"
-    echo "/**@const*/ var ENABLE_NODEJS = $OPT_NODEJS;"
-    echo "/**@const*/ var ENABLE_SPACEPORT = $OPT_SPACEPORT;"
-    echo "/**@const*/ var BROWSER_SYNC = false;"
-    echo "/**@const*/ var ENABLE_PACKAGES = true;"
-    echo "/**@const*/ var LOGGING = false;"
-    echo "/**@const*/ var WARNINGS = false;"
-    echo "/**@const*/ var CHECK_CYCLES = false;"
-
-    strip_debug "$ROOT/lib/unrequire.js"
+    cat
     echo '}());'
 ) | (
-    minify_closure_compiler | minify_uglifyjs
+    if $OPT_COMPRESS; then minify_uglifyjs; else cat; fi
 ) > "$OUT"
 
 $OPT_OUT_GIVEN || echo "Build done; see $OUT"

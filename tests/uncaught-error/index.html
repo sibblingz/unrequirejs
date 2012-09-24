@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<title>Uncaught error</title>
+
+<script src="../../dist/unrequire.js"></script>
+<script src="../test.js"></script>
+
+<p>This test should properly report an uncaught <code>Error</code> thrown from <code>uncaught-error.js</code>.</p>
+
+<p>You should see something like this in the console:</p>
+
+<pre><code>Error thrown: Uncaught error from user code
+Error thrown: Cooler uncaught error from user code
+</code></pre>
+
+<script src="./test.js"></script>

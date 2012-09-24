@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<title>Inline require test</title>
+
+<p>This test ensures the "require" module returns an async subrequire.</p>
+
+<p>You should see <code>All assertions passed</code> in the console.</p>
+
+<script src="../../dist/unrequire.js"></script>
+<script src="../test.js"></script>
+
+<script>
+    require([ 'require' ], function (require) {
+        require([ 'require', 'a' ], function (require2, a) {
+            test.assert(a === 'A', "Module a returns 'A'");
+            test.assert(require !== require2, "Separate inline requires are different");
+            test.done();
+        });
+    });
+</script>

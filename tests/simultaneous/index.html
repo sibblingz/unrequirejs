@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<title>Simultaneous test</title>
+
+<p>This test ensures that multiple modules loaded simultaneously all resolve at once.</p>
+
+<p>You should see <code>All assertions passed</code> in the console.</p>
+
+<script src="../../dist/unrequire.js"></script>
+<script src="../test.js"></script>
+<script src="./test.js"></script>

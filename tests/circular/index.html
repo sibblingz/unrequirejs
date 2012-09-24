@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<title>Circular dependency test</title>
+
+<script src="../../dist/unrequire.js"></script>
+<script src="../test.js"></script>
+
+<p>You should see a console error reporting a circular reference</p>
+
+<script src="./test.js"></script>
