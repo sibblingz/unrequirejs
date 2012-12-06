@@ -16,9 +16,9 @@ fi
 rm -rf $STAGING_AREA/workspace/unrequire
 mkdir $STAGING_AREA/workspace/unrequire
 
-#move build artifacts to staging area
-cp $WORKSPACE/dist/unrequire.js $STAGING_AREA/workspace/unrequire/
-
 #save change documentation to staging area
 $SP_SCRIPTS/copy_component_changes.py $WORKSPACE/../builds/$BUILD_NUMBER/changelog.xml $STAGING_AREA/changes/unrequire.txt
+
+#move build artifacts to staging area
+cp $WORKSPACE/dist/unrequire.js $STAGING_AREA/workspace/unrequire/
 
