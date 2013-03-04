@@ -105,9 +105,6 @@ if ! $OPT_PLUGIN_GIVEN; then
 fi
 
 (
-    echo ';// I am awesome'
-    echo '(function (window) {'
-
     # Flags
     echo "/**@const*/ var LOGGING = false;"
 
@@ -123,7 +120,6 @@ fi
         after_script
     done
 
-    echo '}(window));'
     after_script
 ) | (
     if $OPT_COMPRESS; then minify_closure_compiler; else cat; fi
